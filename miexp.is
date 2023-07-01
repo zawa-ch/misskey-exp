@@ -3,7 +3,7 @@
 	name: "MiExp"
 	author: "zawa-ch."
 	description: "あなたのMisskeyでの活動から経験値を集計します"
-	version: "1.0.0"
+	version: "1.0.1"
 	permissions: [
 		//	write:notifications
 		//	ログインやレベルアップを通知するために必要になります。
@@ -31,6 +31,8 @@
 		}
 	}
 }
+//	1.0.1 update
+//	通常ノートとファイル付きノートが二重で集計されているので修正
 
 let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
@@ -159,7 +161,6 @@ let MIEXP_CONST = {
 	}
 
 	let note_n = Math:max(0, activitydata.notes.diffs.normal[0])
-	let note_e = Math:max(0, activitydata.notes.diffs.withFile[0])
 	let renote = Math:max(0, activitydata.notes.diffs.renote[0])
 	let follow = activitydata.following.local.followings.total[0]
 	var remove = 0
@@ -169,7 +170,7 @@ let MIEXP_CONST = {
 	let reply = Math:max(0, activitydata.notes.diffs.reply[0])
 	let reaction = activitydata.reactions.local.count[0] + activitydata.reactions.remote.count[0]
 	let base = Math:floor( Math:sqrt( loginday / 14 ) * 128)
-	let unidirectinal = Math:floor( Math:sqrt(Math:sqrt( (note_n + note_e + Math:sqrt(renote)) / 128 )) * 128 )
+	let unidirectinal = Math:floor( Math:sqrt(Math:sqrt( (note_n + Math:sqrt(renote)) / 128 )) * 128 )
 	let bidirectional_f1 = Math:sqrt(Math:sqrt( follow / 256 )) * (256 - Math:min(follow, 256)) / 256
 	let bidirectional_f2 = Math:sqrt(Math:sqrt(Math:sqrt( follow / 256 ))) * Math:min(follow, 256) / 256
 	let bidirectional_f = Math:max(0, bidirectional_f1 + bidirectional_f2 - remove / 64)
