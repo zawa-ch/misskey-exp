@@ -3,7 +3,7 @@
 	name: "MiExp"
 	author: "zawa-ch."
 	description: "あなたのMisskeyでの活動から経験値を集計します"
-	version: "1.1.0"
+	version: "1.1.1"
 	permissions: [
 		//	write:notifications
 		//	ログインやレベルアップを通知するために必要になります。
@@ -31,6 +31,9 @@
 		}
 	}
 }
+//	1.1.1 update
+//	セーブデータのアップグレードをMiExp本体に取り込み
+//	通知に関わる問題の修正
 //	1.1.0 update
 //	ひとつのオブジェクトクラスに機能を集約
 //	一部の場面で次レベルまでのゲージ数の表示が間違っているのを修正
@@ -47,6 +50,80 @@ let MIEXP_CONST = {
 	help_formtitle: @(){`MiExp: コマンドラインヘルプ`}
 	cmdnotfound_dialog: @(){`指定されたコマンドは存在しません。help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`}
 	formnotempty_dialog: @(){`フォームが空ではありません。この操作を行うには、フォームを空にする必要があります。`}
+}
+
+@MiExpSaveUtil(save) {
+	@is_type(value, type) { Core:type(value) == type }
+	//  セーブデータからバージョンを検出する
+	//  save: any  セーブデータ
+	//  <- num|null  検出したバージョン、検出できない場合はnull
+	@detect_version(save) {
+		if Core:type(save) != 'obj' { return null }
+		if Core:type(save.schema) != 'obj' { return 0 }
+		if Core:type(save.schema.version) != 'num' { return null }
+		if save.schema.version < 1 || save.schema.version > 1 { return null }
+		save.schema.version
+	}
+	let LATEST_VERSION = 1
+	//  セーブデータの妥当性を検出するバージョン別関数
+	let validation_detector = [
+		//	version 0 (1.0.0 - 1.0.3)
+		@(save) { is_type(save.loginday, 'num') && is_type(save.loginmap, 'arr') && is_type(save.subscore, 'num') && is_type(save.score, 'num') && is_type(save.level, 'num') && is_type(save.lastupdate, 'num') }
+		//	version 1 (1.1.0 -)
+		@(save) {
+			if Core:not(is_type(save.schema, 'obj') && is_type(save.exp, 'obj') && is_type(save.state, 'obj') && is_type(save.loginmap, 'arr')) { return false }
+			if Core:not(is_type(save.schema.context, 'str') && is_type(save.schema.version, 'num')) { return false }
+			save.schema.context == 'miexp' && save.schema.version == 1
+		}
+	]
+	let LOCALTIME_DIFF = Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00`)
+	//	セーブデータのアップグレードを行うバージョン別関数
+	let updator = [
+		//	version 0 (-> 1)
+		@(save) { { schema: { context: 'miexp', version: 1 }, lastlogin: ((save.lastupdate * 24 + 5) * 3600000 - LOCALTIME_DIFF), exp: { level: save.level, gauge: save.score, points: save.subscore }, state: { login: save.loginday }, loginmap: save.loginmap } }
+		//	version 1 (latest)
+		@(save) { save }
+	]
+	var data = if Core:type(save) == 'obj' { Obj:copy(save) } else { save }
+	{
+		//	セーブデータを取得する
+		savedata: @() { data }
+		//	バージョンを取得する
+		version: @() { detect_version(data) }
+		//	セーブデータの妥当性を取得する
+		is_valid: @() {
+			let v = detect_version(data)
+			if !is_type(v, 'num') { return false }
+			validation_detector[v](data)
+		}
+		//	アップグレード可能かを取得する
+		is_upgradable: @() {
+			let v = detect_version(data)
+			is_type(v, 'num') && LATEST_VERSION != v
+		}
+		is_latest: @() {
+			let v = detect_version(data)
+			LATEST_VERSION == v
+		}
+		//	セーブデータのアップグレードを行う
+		upgrade: @() {
+			var v = detect_version(data)
+			if !is_type(v, 'num') { return { error: 'VERSION_CANT_DETECT' } }
+			if !validation_detector[v](data) { return { error: 'INVALID_SAVEDATA' } }
+			if LATEST_VERSION == v { return { result: 'NO_UPDATE_NEEDED' } }
+			var s = Obj:copy(data)
+			loop {
+				s = updator[v](s)
+				let nv = detect_version(s)
+				if nv != (v + 1) { return { error: 'VERSION_ASSERTION_FAILED' } }
+				if !validation_detector[nv](s) { return { error: 'SCHEMA_ASSERTION_FAILED' } }
+				if LATEST_VERSION == nv { break }
+				v = nv
+			}
+			data = s
+			{ result: 'UPDATED' }
+		}
+	}
 }
 
 @MiExp(context) {
@@ -70,7 +147,9 @@ let MIEXP_CONST = {
 		datanotexist_head: @(){`データがありません`}
 		datanotexist_body: @(){`MiExpのデータが存在しないため、現在のレベルを確認できません。`}
 		invalidtype_dialog_head: @(){`形式が異なります`}
-		invalidtype_dialog_body: @(){`入力されたデータはこのバージョンに適合した有効なMiExpデータではありません。{Str:lf}データのアップグレードにはアップグレードツールを用いてください。`}
+		invalidtype_dialog_body: @(){`入力されたデータは有効なMiExpデータではありません。`}
+		upgradefailure_dialog_head: @(){`アップグレードに失敗しました`}
+		upgradefailure_dialog_body: @(){`入力されたデータを最新のバージョンに変換するときに問題が発生しました。`}
 		overwrite_dialog_head: @(){`この操作はデータを上書きします`}
 		overwrite_dialog_body: @(){`この操作によってもとあったデータは失われます。取り消すことはできません。`}
 		erase_dialog_head: @(){`データを削除します`}
@@ -175,16 +254,8 @@ let MIEXP_CONST = {
 	@is_newdata(savedata) { !check_type(savedata, 'obj') }
 	//	セーブデータが有効であるかを取得
 	@is_validdata(savedata) {
-		if !check_type(savedata, 'obj') { return false }
-		if !check_type(savedata.schema, 'obj') { return false }
-		if !check_type(savedata.schema.context, 'str') { return false }
-		if savedata.schema.context != 'miexp' { return false }
-		if !check_type(savedata.schema.version, 'num') { return false }
-		if savedata.schema.version != 1 { return false }
-		if !check_type(savedata.exp, 'obj') { return false }
-		if !check_type(savedata.state, 'obj') { return false }
-		if !check_type(savedata.loginmap, 'arr') { return false }
-		true
+		let s = MiExpSaveUtil(savedata)
+		s.is_valid() && s.is_latest()
 	}
 	//	セーブデータとその日との日数の差を取得
 	@login_duration(savedata, date) { convert_date(date) - convert_date(value_or(savedata.lastlogin, 0)) }
@@ -285,7 +356,7 @@ let MIEXP_CONST = {
 			message.push(LOCALIZATION.earnedexp_message(earned_exp.result))
 			message.push(LOCALIZATION.earnedexp_base(earned_exp.base))
 			message.push(LOCALIZATION.earnedexp_unidirectional(earned_exp.unidirectinal))
-			message.push(LOCALIZATION.earnedexp_bidirectional(earned_exp.bidirectional))
+			message.push(LOCALIZATION.earnedexp_bidirectional(earned_exp.bidirectional.result))
 			let old_level = value_or(data.exp.level, 0)
 			let new_exp = levelup(data.exp, earned_exp.result)
 			dbg({ new_exp: new_exp })
@@ -318,15 +389,20 @@ let MIEXP_CONST = {
 		import_data: @(new_data) {
 			dbg('@Miexp:import_data')
 			dbg({import_data: new_data})
-			if !is_validdata(new_data) {
+			let s = MiExpSaveUtil(new_data)
+			if !s.is_valid() {
 				return { error: { code: 'INVALID_SAVEDATA', message: LOCALIZATION.invalidtype_dialog_body(), title: LOCALIZATION.invalidtype_dialog_head() } }
+			}
+			if s.is_upgradable() {
+				let r = s.upgrade()
+				if !check_type(r.error, 'null') { return { error: { code: 'SAVEDATA_UPGRADE_FAILED', inner: r.error, message: LOCALIZATION.upgradefailure_dialog_body(), title: LOCALIZATION.upgradefailure_dialog_head() } } }
 			}
 			{
 				message: LOCALIZATION.overwrite_dialog_body()
 				title: LOCALIZATION.overwrite_dialog_head()
 				confirm: @() {
-					data = new_data
-					context.save(new_data)
+					data = s.savedata()
+					context.save(s.savedata())
 					{ result: 'SUCCESS' }
 				}
 			}
@@ -379,7 +455,7 @@ let MIEXP_CONST = {
 }
 
 //	Misskey API 通知送信
-@miexp_notify(body) { if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: Plugin:name, icon: MIEXP_CONST.notification_icon }) } }
+@miexp_notify(body) { if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) } }
 
 //	プラグインデータ保存
 @miexp_save(data) { Mk:save(MIEXP_CONST.savedata_key, data) }
