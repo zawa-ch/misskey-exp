@@ -3,7 +3,7 @@
 	name: "MiExp"
 	author: "zawa-ch."
 	description: "あなたのMisskeyでの活動から経験値を集計します"
-	version: "1.0.3"
+	version: "1.1.0"
 	permissions: [
 		//	write:notifications
 		//	ログインやレベルアップを通知するために必要になります。
@@ -26,49 +26,57 @@
 		debugMode: {
 			type: 'bool'
 			label: 'デバッグモード'
-			description: 'デバッグを有効化します。'
+			description: 'デバッグを有効化します。有効化するとすべてのデバッグメッセージ、通知、エラー出力などがデバッグコンソールに出力されます。'
 			default: false
 		}
 	}
 }
-//	1.0.3 update
-//	v1.0.2で間違った構文を修正
-//	1.0.2 update
-//	レベルアップ処理がうまくいかない問題の修正
-//	1.0.1 update
-//	通常ノートとファイル付きノートが二重で集計されているので修正
+//	1.1.0 update
+//	ひとつのオブジェクトクラスに機能を集約
+//	一部の場面で次レベルまでのゲージ数の表示が間違っているのを修正
+//	チャートの取得に失敗した場合は再取得するように
+//	チャートの取得単位を時間単位に変更(日単位だと取りこぼしが多いため)
 
 let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
+	activitycache_key: 'miexp/activity_cache'
 	notification_head: 'MiExp'
 	notification_icon: null
-	text: {
+	//	If you want to translate, edit here
+	cmd_formtitle: @(){`MiExp: コマンドライン実行`}
+	help_formtitle: @(){`MiExp: コマンドラインヘルプ`}
+	cmdnotfound_dialog: @(){`指定されたコマンドは存在しません。help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`}
+	formnotempty_dialog: @(){`フォームが空ではありません。この操作を行うには、フォームを空にする必要があります。`}
+}
+
+@MiExp(context) {
+	@check_type(obj, type) { Core:type(obj) == type }
+	@value_or(value, alt) { if !check_type(value 'null') { value } else { alt } }
+	//	ゲージ1本分の経験値量
+	let EXP_GAUGE_CAPACITY = 256
+	//	ローカライゼーションデータ
+	//	If you want to translate, edit here
+	let LOCALIZATION = {
 		welcome_message: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
 		earnedexp_message: @(exp){`獲得した経験値: {exp}`}
 		earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
 		earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
 		earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
 		levelup_message: @(){`レベルアップしました！`}
-		level_title_message: @(){`**MiExp 現在のレベル**`}
+		level_title: @(){`**MiExp 現在のレベル**`}
 		logindays: @(days){`ログイン日数: **{days}**日`}
-		currentlevel_message: @(lv){`現在のレベル: **{lv}**`}
-		progress_message: @(x sub scale next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
-		cmd_formtitle: @(){`MiExp: コマンドライン実行`}
-		help_formtitle: @(){`MiExp: コマンドラインヘルプ`}
-		datanotexist_dialog_head: @(){`データがありません`}
-		datanotexist_dialog_body: @(){`MiExpのデータが存在しないため、現在のレベルを確認できません。`}
-		formnotempty_dialog_head: @(){`フォームが空ではありません`}
-		formnotempty_dialog_body: @(){`この操作を行うには、フォームを空にする必要があります。`}
-		cmdnotfound_dialog_head: @(){`指定されたコマンドは存在しません`}
-		cmdnotfound_dialog_body: @(){`help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`}
+		currentlevel: @(lv){`現在のレベル: **{lv}**`}
+		level_progress: @(x, sub, scale, next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
+		datanotexist_head: @(){`データがありません`}
+		datanotexist_body: @(){`MiExpのデータが存在しないため、現在のレベルを確認できません。`}
 		invalidtype_dialog_head: @(){`形式が異なります`}
-		invalidtype_dialog_body: @(){`MiExpデータではない形式のデータが入力されました。`}
+		invalidtype_dialog_body: @(){`入力されたデータはこのバージョンに適合した有効なMiExpデータではありません。{Str:lf}データのアップグレードにはアップグレードツールを用いてください。`}
 		overwrite_dialog_head: @(){`この操作はデータを上書きします`}
 		overwrite_dialog_body: @(){`この操作によってもとあったデータは失われます。取り消すことはできません。`}
 		erase_dialog_head: @(){`データを削除します`}
 		erase_dialog_body: @(){`この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`}
 		cmdhelp: @(){[
-			`MiExp コマンドラインヘルプ`
+			`MiExp ヘルプ`
 			``
 			`**利用可能なコマンド**(すべてのコマンドは大文字小文字を区別します)`
 			`help    このヘルプを表示する`
@@ -87,7 +95,7 @@ let MIEXP_CONST = {
 			`・直近のフォロー解除`
 			`・前日のノート`
 			`・前日のリアクション`
-			`MiExp経験値にはゲージが存在し、256経験値で1本分のゲージになります。`
+			`MiExp経験値にはゲージが存在し、{EXP_GAUGE_CAPACITY}経験値で1本分のゲージになります。`
 			`ゲージを一定数貯めることでレベルを上げることができます。`
 			`レベルアップに必要なゲージ数は現在のレベルによって変化します。`
 			`tips: 一日に大量のアクティビティを行うよりも、毎日ログインを行って継続的に活動したほうが効率が良くなるよう、経験値アルゴリズムは調整されています。`
@@ -97,330 +105,467 @@ let MIEXP_CONST = {
 			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
 		].join(Str:lf)}
 	}
-	exp: {
-		subscore_scale: 256
-	}
-}
-
-@dbg(msg) { if Plugin:config.debugMode { <: msg } }
-
-@value_or(value alt) { if Core:type(value) != 'null' { value } else { alt } }
-
-@starts_with(str search) { str.index_of(search) == 0 }
-
-@slice_before_with(str search) {
-	let i = str.index_of(search)
-	if i >= 0 { str.slice(0 i) } else { null }
-}
-
-@slice_after_with(str search) {
-	let i = str.index_of(search)
-	if i >= 0 { str.slice((i+search.len) str.len) } else { null }
-}
-
-//	Misskey API 通知送信
-@miexp_notify(body) {
-	if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) }
-}
-
-//	プラグインデータ保存
-@miexp_save(data) {
-	Mk:save(MIEXP_CONST.savedata_key data)
-}
-
-//	プラグインデータ取得
-@miexp_load() {
-	Mk:load(MIEXP_CONST.savedata_key)
-}
-
-//	AiScript標準日付 -> Miexp日付データ変換
-//	date: num	AiScriptで使用される日付データ
-@miexp_date(date) {
-	let LOCALTIME_DIFF = Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00 UTC`) - Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00`)
-	Math:floor(((date + LOCALTIME_DIFF) / 3600000 - 5) / 24)
-}
-
-@miexp_update_loginmap(data duration) {
-	if Core:type(data) == 'arr' {
-		data.push(duration)
-		data.reverse()
-		data.pop()
-		data.reverse()
-		data
-	} else {
-		var r = []
-		for 13 { r.push(null) }
+	if !check_type(context, 'obj') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context type is not obj' } } }
+	if !check_type(context.load, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' } } }
+	if !check_type(context.save, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' } } }
+	if !check_type(context.get_activity, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.get_activity type is not fn' } } }
+	@dbg(msg) { if check_type(context.debug, 'fn') { context.debug(msg) } }
+	//	ログインマップデータの更新
+	@update_loginmap(map, duration) {
+		var r = map.copy()
+		r.reverse()
 		r.push(duration)
+		r.reverse()
+		r.slice(0, 14)
+	}
+	//	AiScript標準日付 -> Miexp日付データ変換
+	//	date: num	AiScriptで使用される日付データ
+	@convert_date(date) {
+		let LOCALTIME_DIFF = Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00 UTC`) - Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00`)
+		Math:floor(((date + LOCALTIME_DIFF) / 3600000 - 5) / 24)
+	}
+	//	経験値計算
+	@calc_exp(activitydata) {
+		let result = eval {
+			let b = Math:floor( Math:sqrt( activitydata.login_freq / 14 ) * 128)
+			let ud = Math:floor( Math:sqrt(Math:sqrt( (activitydata.notes.normal + Math:sqrt(activitydata.notes.renote)) / 128 )) * 128 )
+			let bd = eval {
+				let bd_a = eval {
+					let score = activitydata.notes.reply * 4 + activitydata.reaction
+					let parts = [
+						Math:sqrt( score / 256 ) * (256 - Math:min(score, 256)) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
+						Math:sqrt(Math:sqrt(Math:sqrt( score / 256 ))) * Math:min(score, 256) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
+						Math:sqrt( score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ) * (256 - Math:min(score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256)) / 512 * Math:min(activitydata.follow.following, 256) / 256
+						Math:sqrt(Math:sqrt(Math:sqrt( score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ))) * Math:min(score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256) / 256 * Math:min(activitydata.follow.following, 256) / 256
+					]
+					{ score: score, parts: parts, result: parts[0] + parts[1] + parts[2] + parts[3] }
+				}
+				var bd_f = eval {
+					let parts = [
+						Math:sqrt(Math:sqrt( activitydata.follow.following / 256 )) * (256 - Math:min(activitydata.follow.following, 256)) / 256
+						Math:sqrt(Math:sqrt(Math:sqrt( activitydata.follow.following / 256 ))) * Math:min(activitydata.follow.following, 256) / 256
+					]
+					{ parts: parts, result: Math:max(0, parts[0] + parts[1] - activitydata.follow.remove / 64) }
+				}
+				{ follow: bd_f, activity: bd_a, result: Math:floor( bd_f.result * bd_a.result * 256 ) }
+			}
+			{ params: activitydata, base: b, unidirectinal: ud, bidirectional: bd, result: b + ud + bd.result }
+		}
+		dbg(result)
+		result
+	}
+	//	次レベルまでに必要なゲージ数の取得
+	@calc_nextlevel(level) { 1 + Math:floor( Math:sqrt(level / 64) * 8 ) }
+	//	レベルアップ処理
+	@levelup(current, earned) {
+		var r = {
+			level: current.level
+			gauge: Math:floor(value_or(current.gauge, 0) + (value_or(current.points, 0) + earned) / EXP_GAUGE_CAPACITY)
+			points: Math:floor((value_or(current.points, 0) + earned) % EXP_GAUGE_CAPACITY)
+		}
+		loop {
+			let g = calc_nextlevel(r.level)
+			if r.gauge < g { break }
+			r.gauge -= g
+			r.level += 1
+		}
 		r
 	}
-}
-
-@miexp_calc_exp(activitydata) {
-	let base = Math:floor( Math:sqrt( activitydata.loginday / 14 ) * 128)
-	let unidirectinal = Math:floor( Math:sqrt(Math:sqrt( (activitydata.notes.normal + Math:sqrt(activitydata.notes.renote)) / 128 )) * 128 )
-	let bidirectional_f1 = Math:sqrt(Math:sqrt( activitydata.follow.following / 256 )) * (256 - Math:min(activitydata.follow.following, 256)) / 256
-	let bidirectional_f2 = Math:sqrt(Math:sqrt(Math:sqrt( activitydata.follow.following / 256 ))) * Math:min(activitydata.follow.following, 256) / 256
-	let bidirectional_f = Math:max(0, bidirectional_f1 + bidirectional_f2 - activitydata.follow.remove / 64)
-	let bidirectional_as = activitydata.notes.reply * 4 + activitydata.reaction
-	let bidirectional_a1 = Math:sqrt( bidirectional_as / 256 ) * (256 - Math:min(bidirectional_as, 256)) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
-	let bidirectional_a2 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / 256 ))) * Math:min(bidirectional_as, 256) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
-	let bidirectional_a3 = Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ) * (256 - Math:min(bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256)) / 512 * Math:min(activitydata.follow.following, 256) / 256
-	let bidirectional_a4 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ))) * Math:min(bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256) / 256 * Math:min(activitydata.follow.following, 256) / 256
-	let bidirectional_a = bidirectional_a1 + bidirectional_a2 + bidirectional_a3 + bidirectional_a4
-	let bidirectional = Math:floor( bidirectional_f * bidirectional_a * 256 )
-	let result = {
-		result: base + unidirectinal + bidirectional
-		base: base
-		unidirectinal: unidirectinal
-		bidirectional: bidirectional
-		bidirectional_parts: {
-			follow: bidirectional_f
-			follow_parts: [
-				bidirectional_f1
-				bidirectional_f2
-			]
-			activityscore: bidirectional_as
-			activity: bidirectional_a
-			activity_parts: [
-				bidirectional_a1
-				bidirectional_a2
-				bidirectional_a3
-				bidirectional_a4
-			]
+	//	セーブデータが新規データであるかを取得
+	@is_newdata(savedata) { !check_type(savedata, 'obj') }
+	//	セーブデータが有効であるかを取得
+	@is_validdata(savedata) {
+		if !check_type(savedata, 'obj') { return false }
+		if !check_type(savedata.schema, 'obj') { return false }
+		if !check_type(savedata.schema.context, 'str') { return false }
+		if savedata.schema.context != 'miexp' { return false }
+		if !check_type(savedata.schema.version, 'num') { return false }
+		if savedata.schema.version != 1 { return false }
+		if !check_type(savedata.exp, 'obj') { return false }
+		if !check_type(savedata.state, 'obj') { return false }
+		if !check_type(savedata.loginmap, 'arr') { return false }
+		true
+	}
+	//	セーブデータとその日との日数の差を取得
+	@login_duration(savedata, date) { convert_date(date) - convert_date(value_or(savedata.lastlogin, 0)) }
+	//	その日のログイン処理を行えるかを取得
+	@is_login_available(savedata, date) {
+		if is_newdata(savedata) { return true }
+		if !check_type(savedata.lastlogin, 'num') { return true }
+		login_duration(savedata, date) > 0
+	}
+	//	新規データの構築
+	@create_newdata() {
+		{
+			schema: { context: 'miexp', version: 1 }
+			lastlogin: null
+			exp: { level: 0, gauge: 0, points: 0 }
+			state: { login: 0 }
+			loginmap: eval {
+				var a = []
+				for 14 { a.push(null) }
+				a
+			}
 		}
-		params: activitydata
 	}
-	dbg(result)
-	result
-}
-
-@miexp_nextlevel(level) {
-	1 + Math:floor( Math:sqrt(level / 64) * 8 )
-}
-
-@miexp_levelup(savedata) {
-	if savedata.score >= miexp_nextlevel(savedata.level) {
-		var r = savedata
-		r.score = r.score - miexp_nextlevel(savedata.level)
-		r.level = r.level + 1
-		miexp_levelup(r)
-	} else {
-		savedata
-	}
-}
-
-@miexp_cmd_help(args update) {
-	update('visibility' 'specified')
-	update('visibleUserIds' [])
-	update('text' MIEXP_CONST.text.cmdhelp())
-	MIEXP_CONST.text.cmdhelp()
-}
-
-@miexp_cmd_share(args update) {
-	var savedata = miexp_load()
-	let new_data = Core:type(savedata) != "obj"
-	if new_data {
-		Mk:dialog(MIEXP_CONST.text.datanotexist_dialog_head() MIEXP_CONST.text.datanotexist_dialog_body() 'error')
-		return null
-	}
-	let share_text = [
-		MIEXP_CONST.text.level_title_message()
-		MIEXP_CONST.text.logindays(savedata.loginday)
-		MIEXP_CONST.text.currentlevel_message(savedata.level)
-		MIEXP_CONST.text.progress_message(savedata.score savedata.subscore MIEXP_CONST.exp.subscore_scale miexp_nextlevel(savedata.level))
-	]
-	update('text' share_text.join(`{Str:lf}`))
-	share_text.join(`{Str:lf}`)
-}
-
-@miexp_cmd_login(args update) {
-	if Core:type(update) == 'fn' { update('text' '') }
-	var savedata = miexp_load()
+	var data = context.load()
 	dbg('loaded savedata')
-	dbg({ savedata: savedata })
-	var notify = []
-	let new_data = Core:type(savedata) != "obj"
-	if new_data {
-		dbg('new data')
-		notify.push(MIEXP_CONST.text.welcome_message())
-		savedata = {}
-	}
-	dbg({ today: miexp_date(Date:now()), lastupdate: value_or(savedata.lastupdate 0) })
-	let login_dur = miexp_date(Date:now()) - value_or(savedata.lastupdate 0)
-	if (!new_data) && (login_dur <= 0) {
-		dbg('already logged in')
-		return {
-			login: false
-			notify: null
-			savedata: savedata
+	dbg({ savedata: data })
+
+	{
+		//	ヘルプを表示するための要素を取得
+		help: @() {
+			dbg('@Miexp:help')
+			let message = LOCALIZATION.cmdhelp()
+			{ message: message }
 		}
-	}
-	let loginmap = miexp_update_loginmap(savedata.loginmap (if !new_data { login_dur } else { null }))
-	dbg({ loginmap: loginmap })
-	let calcexp = miexp_calc_exp({
-		loginday: eval {
-			var loginday = 0
-			var t_days = 0
-			for let i, 14 {
-				loginday += 1
-				t_days += value_or(loginmap[loginmap.len-1-i] 0)
-				if t_days >= 14 { break }
+		//	共有用テキスト要素を取得
+		share: @() {
+			dbg('@Miexp:share')
+			if !is_validdata(data) {
+				return { error: { code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() } }
 			}
-			loginday
+			let message = [
+				LOCALIZATION.level_title()
+				LOCALIZATION.logindays(data.state.login)
+				LOCALIZATION.currentlevel(data.exp.level)
+				LOCALIZATION.level_progress(data.exp.gauge, data.exp.points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.exp.level))
+			].join(Str:lf)
+			{ message: message }
 		}
-		notes: eval {
-			let chart_notes = Mk:api('charts/user/notes' { span: 'day', limit: 1, userId: USER_ID })
-			{
-				normal: Math:max(0, chart_notes.diffs.normal[0])
-				renote: Math:max(0, chart_notes.diffs.renote[0])
-				reply: Math:max(0, chart_notes.diffs.reply[0])
+		//	その日のログイン処理を行えるかを取得
+		is_login_available: @() {
+			dbg('@Miexp:is_login_available')
+			{ result: is_login_available(data, Date:now()) }
+		}
+		//	ログイン処理を実行
+		login: @() {
+			dbg('@Miexp:login')
+			dbg({data: data})
+			let current_time = Date:now()
+			if !is_login_available(data, current_time) {
+				dbg('already logged in')
+				return { result: 'ALREADY_LOGGED_IN', message: null }
 			}
+			var message = []
+			if is_newdata(data) {
+				dbg('new data')
+				message.push(LOCALIZATION.welcome_message())
+				data = create_newdata()
+			}
+			dbg({data: data})
+			if !is_validdata(data) {
+				return { error: { code: 'INVALID_SAVEDATA', message: 'Invalid savedata loaded.' } }
+			}
+			let loginmap = if Core:type(data.lastlogin) == 'num' { update_loginmap(data.loginmap, login_duration(data, current_time)) } else { data.loginmap }
+			dbg({ loginmap: loginmap })
+			let login_freq = eval {
+				var r = 0
+				var d = 0
+				for let i, Math:min(loginmap.len, 14) {
+					r += 1
+					d += value_or(loginmap[i], 1)
+					if d >= 14 { break }
+				}
+				r
+			}
+			let activity = context.get_activity()
+			dbg({ activity: activity })
+			if !check_type(activity, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.notes, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.notes.normal, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.normal', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.notes.renote, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.renote', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.notes.reply, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.reply', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.follow, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.follow.following, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow.following', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.follow.remove, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow.remove', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity.reaction, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.reaction', message: 'Callback "get_activity" returns invalid object.' } } }
+			let earned_exp = calc_exp({login_freq: login_freq, notes: activity.notes, follow: activity.follow, reaction: activity.reaction})
+			dbg({earned_exp: earned_exp})
+			message.push(LOCALIZATION.earnedexp_message(earned_exp.result))
+			message.push(LOCALIZATION.earnedexp_base(earned_exp.base))
+			message.push(LOCALIZATION.earnedexp_unidirectional(earned_exp.unidirectinal))
+			message.push(LOCALIZATION.earnedexp_bidirectional(earned_exp.bidirectional))
+			let old_level = value_or(data.exp.level, 0)
+			let new_exp = levelup(data.exp, earned_exp.result)
+			dbg({ new_exp: new_exp })
+			if (!is_newdata(data)) && (old_level < data.exp.level) {
+				dbg(`level up`)
+				message.push(LOCALIZATION.levelup_message())
+			}
+			data.lastlogin = current_time
+			data.exp = new_exp
+			data.state.login = value_or(data.state.login, 0) + 1
+			data.loginmap = loginmap
+			dbg({ updated_savedata: data })
+			message.push('')
+			message.push(LOCALIZATION.level_title())
+			message.push(LOCALIZATION.logindays(data.state.login))
+			message.push(LOCALIZATION.currentlevel(data.exp.level))
+			message.push(LOCALIZATION.level_progress(data.exp.gauge, data.exp.points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.exp.level)))
+			context.save(data)
+			{ result: 'LOGIN_SUCCESS', message: message.join(Str:lf) }
 		}
-		follow: eval {
-			let chart_following = Mk:api('charts/user/following' { span: 'day', limit: 14, userId: USER_ID })
+		//	データのエクスポート
+		export_data: @() {
+			dbg('@Miexp:export_data')
+			if !is_validdata(data) {
+				return { error: { code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() } }
+			}
+			{ result: data, to_json: @() { Json:stringify(data) } }
+		}
+		//	データのインポート
+		import_data: @(new_data) {
+			dbg('@Miexp:import_data')
+			dbg({import_data: new_data})
+			if !is_validdata(new_data) {
+				return { error: { code: 'INVALID_SAVEDATA', message: LOCALIZATION.invalidtype_dialog_body(), title: LOCALIZATION.invalidtype_dialog_head() } }
+			}
 			{
-				following: chart_following.local.followings.total[0]
-				remove: eval {
-					var remove = 0
-					for let i, 14 {
-						remove += chart_following.local.followings.dec[i]
-					}
-					remove
+				message: LOCALIZATION.overwrite_dialog_body()
+				title: LOCALIZATION.overwrite_dialog_head()
+				confirm: @() {
+					data = new_data
+					context.save(new_data)
+					{ result: 'SUCCESS' }
 				}
 			}
 		}
-		reaction: eval {
-			let chart_reactions = Mk:api('charts/user/reactions' { span: 'day', limit: 1, userId: USER_ID })
-			chart_reactions.local.count[0] + chart_reactions.remote.count[0]
+		//	データの消去
+		reset: @() {
+			dbg('@Miexp:reset')
+			{
+				message: LOCALIZATION.erase_dialog_body()
+				title: LOCALIZATION.erase_dialog_head()
+				confirm: @() {
+					data = null
+					context.save(null)
+					{ result: 'SUCCESS' }
+				}
+			}
 		}
-	})
-	notify.push(MIEXP_CONST.text.earnedexp_message(calcexp.result))
-	notify.push(MIEXP_CONST.text.earnedexp_base(calcexp.base))
-	notify.push(MIEXP_CONST.text.earnedexp_unidirectional(calcexp.unidirectinal))
-	notify.push(MIEXP_CONST.text.earnedexp_bidirectional(calcexp.bidirectional))
-	let earned_exp = calcexp.result
-	dbg({ earned_score: earned_exp })
-	let old_level = value_or(savedata.level 0)
-	savedata = miexp_levelup({
-		loginday: value_or(savedata.loginday 0) + 1
-		loginmap: loginmap
-		subscore: Math:floor((value_or(savedata.subscore 0) + earned_exp) % MIEXP_CONST.exp.subscore_scale)
-		score: Math:floor(value_or(savedata.score 0) + (value_or(savedata.subscore 0) + earned_exp) / MIEXP_CONST.exp.subscore_scale)
-		level: old_level + 0
-		lastupdate: miexp_date(Date:now())
-	})
-	dbg({ updated_savedata: savedata })
-	let levelup = savedata.level > old_level
-	if (!new_data) && (levelup) {
-		dbg(`level up`)
-		notify.push(MIEXP_CONST.text.levelup_message())
 	}
-	notify.push('')
-	notify.push(MIEXP_CONST.text.level_title_message())
-	notify.push(MIEXP_CONST.text.logindays(savedata.loginday))
-	notify.push(MIEXP_CONST.text.currentlevel_message(savedata.level))
-	notify.push(MIEXP_CONST.text.progress_message(savedata.score savedata.subscore MIEXP_CONST.exp.subscore_scale (savedata.level+1)))
-	miexp_save(savedata)
-	dbg(`saved`)
-	let result = {
-		login: true
-		notify: notify
-		savedata: savedata
-	}
-	dbg(result)
+}
+
+//	nullの場合に代替オブジェクトを適用
+@value_or(value, alt) { if Core:type(value) != 'null' { value } else { alt } }
+
+//	文字列が指定した文字列から開始するかを取得
+@starts_with(str, search) { str.index_of(search) == 0 }
+
+//	文字列から指定した文字列以前の文字列を取得
+@slice_before_with(str, search) {
+	let i = str.index_of(search)
+	if i >= 0 { str.slice(0, i) } else { null }
+}
+
+//	文字列から指定した文字列以降の文字列を取得
+@slice_after_with(str, search) {
+	let i = str.index_of(search)
+	if i >= 0 { str.slice((i+search.len), str.len) } else { null }
+}
+
+@sum(array) {
+	var result = 0
+	for let i, array.len { result += array[i] }
 	result
 }
 
-@miexp_cmd_export(args update) {
-	var savedata = miexp_load()
-	let new_data = Core:type(savedata) != "obj"
-	if new_data {
-		Mk:dialog(MIEXP_CONST.text.datanotexist_dialog_head() MIEXP_CONST.text.datanotexist_dialog_body() 'error')
-		return null
-	}
-	update('text' Json:stringify(savedata))
-	Json:stringify(savedata)
+@merge(a1, a2) {
+	let l = Math:max(a1.len, a2.len)
+	let a = []
+	for let i, l { a.push(i) }
+	a.map(@(i) { a1[i] + a2[i] })
 }
 
-@miexp_cmd_import(args update) {
-	let savedata = Json:parse(args)
-	if Core:type(savedata.loginday) != 'num' {
-		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
-		return null
-	}
-	if Core:type(savedata.loginmap) != 'arr' {
-		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
-		return null
-	}
-	if Core:type(savedata.subscore) != 'num' {
-		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
-		return null
-	}
-	if Core:type(savedata.score) != 'num' {
-		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
-		return null
-	}
-	if Core:type(savedata.level) != 'num' {
-		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
-		return null
-	}
-	if Core:type(savedata.lastupdate) != 'num' {
-		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
-		return null
-	}
-	if !Mk:confirm(MIEXP_CONST.text.overwrite_dialog_head() MIEXP_CONST.text.overwrite_dialog_body() 'warn') {
-		return null
-	}
-	miexp_save(savedata)
-	update('text' '')
+//	Misskey API 通知送信
+@miexp_notify(body) { if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: Plugin:name, icon: MIEXP_CONST.notification_icon }) } }
+
+//	プラグインデータ保存
+@miexp_save(data) { Mk:save(MIEXP_CONST.savedata_key, data) }
+
+//	プラグインデータ取得
+@miexp_load() { Mk:load(MIEXP_CONST.savedata_key) }
+
+//	経験値集計用データをMiExp本体に通知
+@miexp_get_activity() {
+	let activity = Mk:load(MIEXP_CONST.activitycache_key).activity
+	Mk:save(MIEXP_CONST.activitycache_key, null)
+	activity
 }
 
-@miexp_cmd_reset(args update) {
-	if !Mk:confirm(MIEXP_CONST.text.erase_dialog_head() MIEXP_CONST.text.erase_dialog_body() 'warn') {
-		return null
+//	チャートから経験値計算用のデータを取得
+@miexp_collect_chart(inst) {
+	if Plugin:config.debugMode { <: '@miexp_collect_chart' }
+	var c = Mk:load(MIEXP_CONST.activitycache_key)
+	if Core:type(c) != 'obj' { c = { activity: {}, wait_time: 5000 } }
+	let chart_notes = Mk:api('charts/user/notes' { span: 'hour', limit: 24, userId: USER_ID })
+	let chart_following = Mk:api('charts/user/following' { span: 'day', limit: 14, userId: USER_ID })
+	let chart_reactions = Mk:api('charts/user/reactions' { span: 'hour', limit: 24, userId: USER_ID })
+	if Plugin:config.debugMode { <: { chart_notes: chart_notes, chart_following: chart_following, chart_reactions: chart_reactions } }
+	if Core:type(c.activity.notes) != 'obj' {
+		c.activity.notes = eval {
+			if Core:type(chart_notes.diffs) != 'obj' { return null }
+			if Core:type(chart_notes.diffs.normal) != 'arr' { return null }
+			if Core:type(chart_notes.diffs.renote) != 'arr' { return null }
+			if Core:type(chart_notes.diffs.reply) != 'arr' { return null }
+			{
+				normal: Math:max(0, sum(chart_notes.diffs.normal))
+				renote: Math:max(0, sum(chart_notes.diffs.renote))
+				reply: Math:max(0, sum(chart_notes.diffs.reply))
+			}
+		}
 	}
-	miexp_save(null)
-	update('text' '')
+	if Core:type(c.activity.follow) != 'obj' {
+		c.activity.follow = eval {
+			if Core:type(chart_following.local) != 'obj' { return null }
+			if Core:type(chart_following.local.followings) != 'obj' { return null }
+			if Core:type(chart_following.local.followings.total[0]) != 'num' { return null }
+			if Core:type(chart_following.local.followings.dec) != 'arr' { return null }
+			{
+				following: chart_following.local.followings.total[0]
+				remove: sum(chart_following.local.followings.dec)
+			}
+		}
+	}
+	if Core:type(c.activity.reaction) != 'num' {
+		c.activity.reaction = eval {
+			if Core:type(chart_reactions.local) != 'obj' { return null }
+			if Core:type(chart_reactions.local.count) != 'arr' { return null }
+			if Core:type(chart_reactions.remote) != 'obj' { return null }
+			if Core:type(chart_reactions.remote.count) != 'arr' { return null }
+			sum(merge(chart_reactions.local.count, chart_reactions.remote.count))
+		}
+	}
+	if Plugin:config.debugMode { <: c }
+	let wait_time = c.wait_time
+	c.wait_time = Math:min(c.wait_time * 6, 300000)
+	Mk:save(MIEXP_CONST.activitycache_key, c)
+	if Core:type(c.activity.notes) == 'obj' && Core:type(c.activity.follow) == 'obj' && Core:type(c.activity.reaction) == 'num' {
+		if Plugin:config.debugMode { <: 'Data corrected, run login task' }
+		let result = inst.login()
+		if Plugin:config.debugMode { <: result }
+		elif Core:type(result.error) != 'null' {
+			<: result
+			Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.error.code}`, 'error')
+		}
+		elif Core:type(result.message) == 'str' { miexp_notify(result.message) }
+		else {}
+	} else {
+		if Plugin:config.debugMode { <: `Data fetch failed, retry in {wait_time}ms` }
+		Async:timeout(wait_time, @() { miexp_collect_chart(inst) })
+	}
 }
 
-@miexp_cmd_notfound() {
-	Mk:dialog(MIEXP_CONST.text.cmdnotfound_dialog_head() MIEXP_CONST.text.cmdnotfound_dialog_body() 'error')
-	return null
+let miexp_context = {
+	save: miexp_save
+	load: miexp_load
+	get_activity: miexp_get_activity
+	debug: if Plugin:config.debugMode { @(obj) { <: obj } } else { null }
 }
 
 @on_load() {
-	dbg('@on_load')
-	let result = miexp_cmd_login('' null)
-	if result.login {
-		dbg({notify: result.notify})
-		miexp_notify(result.notify.join(`{Str:lf}`))
+	if Plugin:config.debugMode { <: '@on_load' }
+	let inst = MiExp(miexp_context)
+	if Plugin:config.debugMode { <: inst }
+	if Core:type(inst.error) != 'null' {
+		<: inst
+		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+	}
+	if inst.is_login_available().result {
+		Mk:save(MIEXP_CONST.activitycache_key, null)
+		miexp_collect_chart(inst)
 	}
 }
 
-@on_cmd(note update) {
-	dbg('@on_cmd')
-	if (note.text.len <= 0) {
-		return miexp_cmd_share('' update)
+@on_cmd(note, update) {
+	if Plugin:config.debugMode { <: '@on_cmd' }
+	let inst = MiExp(miexp_context)
+	if Plugin:config.debugMode { <: inst }
+	if Core:type(inst.error) != 'null' {
+		<: inst
+		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
 	}
-	let command = value_or(slice_before_with(note.text ' ') note.text)
+	let command = if note.text.len > 0 { value_or(slice_before_with(note.text ' ') note.text) } else { 'share' }
+	if Plugin:config.debugMode { <: command }
 	match (command) {
-		'help' => miexp_cmd_help(value_or(slice_after_with(note.text ' ') '') update)
-		'share' => miexp_cmd_share(value_or(slice_after_with(note.text ' ') '') update)
-		'export' => miexp_cmd_export(value_or(slice_after_with(note.text ' ') '') update)
-		'import' => miexp_cmd_import(value_or(slice_after_with(note.text ' ') '') update)
-		'reset' => miexp_cmd_reset(value_or(slice_after_with(note.text ' ') '') update)
-		* => miexp_cmd_notfound()
+		'help' => eval {
+			update('text', inst.help().message)
+		}
+		'share' => eval {
+			let result = inst.share()
+			if Plugin:config.debugMode { <: result }
+			if Core:type(result.error) != 'null' {
+				Mk:dialog(result.error.title, result.error.message, 'error')
+				return null
+			}
+			update('text', result.message)
+		}
+		'export' => eval {
+			let result = inst.export_data()
+			if Plugin:config.debugMode { <: result }
+			if Core:type(result.error) != 'null' {
+				Mk:dialog(result.error.title, result.error.message, 'error')
+				return null
+			}
+			update('text', result.to_json())
+		}
+		'import' => eval {
+			let import_data = Json:parse(value_or(slice_after_with(note.text ' ') 'null'))
+			var result = inst.import_data(import_data)
+			if Plugin:config.debugMode { <: result }
+			if Core:type(result.error) != 'null' {
+				Mk:dialog(result.error.title, result.error.message, 'error')
+				return null
+			}
+			if !Mk:confirm(result.title, result.message, 'warn') {
+				return null
+			}
+			result = result.confirm()
+			if Plugin:config.debugMode { <: result }
+			if Core:type(result.error) != 'null' {
+				Mk:dialog(result.error.title, result.error.message, 'error')
+				return null
+			}
+			update('text', '')
+		}
+		'reset' => eval {
+			var result = inst.reset()
+			if Plugin:config.debugMode { <: result }
+			if Core:type(result.error) != 'null' {
+				Mk:dialog(result.error.title, result.error.message, 'error')
+				return null
+			}
+			if !Mk:confirm(result.title, result.message, 'warn') {
+				return null
+			}
+			result = result.confirm()
+			if Plugin:config.debugMode { <: result }
+			if Core:type(result.error) != 'null' {
+				Mk:dialog(result.error.title, result.error.message, 'error')
+				return null
+			}
+			update('text', '')
+		}
+		* => Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.cmdnotfound_dialog(), 'error')
 	}
 }
 
-@on_help(note update) {
+@on_help(note, update) {
+	if Plugin:config.debugMode { <: '@on_help' }
 	if (note.text.len > 0) {
-		Mk:dialog(MIEXP_CONST.text.formnotempty_dialog_head() MIEXP_CONST.text.formnotempty_dialog_body() 'error')
+		Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.formnotempty_dialog() 'error')
 		return null
 	}
-	miexp_cmd_help('' update)
+	let inst = MiExp(miexp_context)
+	if Plugin:config.debugMode { <: inst }
+	if Core:type(inst.error) != 'null' {
+		<: inst
+		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+	}
+	update('text', inst.help().message)
 }
 
-Plugin:register_post_form_action(MIEXP_CONST.text.cmd_formtitle() on_cmd)
-if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MIEXP_CONST.text.help_formtitle() on_help) }
+Plugin:register_post_form_action(MIEXP_CONST.cmd_formtitle() on_cmd)
+if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MIEXP_CONST.help_formtitle() on_help) }
 on_load()
