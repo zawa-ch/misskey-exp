@@ -3,7 +3,7 @@
 	name: "MiExp"
 	author: "zawa-ch."
 	description: "あなたのMisskeyでの活動から経験値を集計します"
-	version: "1.0.2"
+	version: "1.0.3"
 	permissions: [
 		//	write:notifications
 		//	ログインやレベルアップを通知するために必要になります。
@@ -31,6 +31,8 @@
 		}
 	}
 }
+//	1.0.3 update
+//	v1.0.2で間違った構文を修正
 //	1.0.2 update
 //	レベルアップ処理がうまくいかない問題の修正
 //	1.0.1 update
@@ -256,7 +258,7 @@ let MIEXP_CONST = {
 	let loginmap = miexp_update_loginmap(savedata.loginmap (if !new_data { login_dur } else { null }))
 	dbg({ loginmap: loginmap })
 	let calcexp = miexp_calc_exp({
-		loginday: expr {
+		loginday: eval {
 			var loginday = 0
 			var t_days = 0
 			for let i, 14 {
@@ -266,7 +268,7 @@ let MIEXP_CONST = {
 			}
 			loginday
 		}
-		notes: expr {
+		notes: eval {
 			let chart_notes = Mk:api('charts/user/notes' { span: 'day', limit: 1, userId: USER_ID })
 			{
 				normal: Math:max(0, chart_notes.diffs.normal[0])
@@ -274,11 +276,11 @@ let MIEXP_CONST = {
 				reply: Math:max(0, chart_notes.diffs.reply[0])
 			}
 		}
-		follow: expr {
+		follow: eval {
 			let chart_following = Mk:api('charts/user/following' { span: 'day', limit: 14, userId: USER_ID })
 			{
 				following: chart_following.local.followings.total[0]
-				remove: expr {
+				remove: eval {
 					var remove = 0
 					for let i, 14 {
 						remove += chart_following.local.followings.dec[i]
@@ -287,7 +289,7 @@ let MIEXP_CONST = {
 				}
 			}
 		}
-		reaction: expr {
+		reaction: eval {
 			let chart_reactions = Mk:api('charts/user/reactions' { span: 'day', limit: 1, userId: USER_ID })
 			chart_reactions.local.count[0] + chart_reactions.remote.count[0]
 		}
