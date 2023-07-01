@@ -1,0 +1,416 @@
+/// @0.13.3
+### {
+	name: "MiExp"
+	author: "zawa-ch."
+	description: "あなたのMisskeyでの活動から経験値を集計します"
+	version: "1.0.0"
+	permissions: [
+		//	write:notifications
+		//	ログインやレベルアップを通知するために必要になります。
+		//	(設定で無効化することもできます)
+		'write:notifications'
+	]
+	config: {
+		enableNotification: {
+			type: 'bool'
+			label: '通知の有効化'
+			description: 'このプラグインが通知を送信することを許可します。'
+			default: true
+		}
+		commandlineHelp: {
+			type: 'bool'
+			label: 'コマンドラインのヘルプ'
+			description: '投稿フォームのプラグインコマンドにコマンドラインのヘルプを表示するボタンを追加します。'
+			default: true
+		}
+		debugMode: {
+			type: 'bool'
+			label: 'デバッグモード'
+			description: 'デバッグを有効化します。'
+			default: false
+		}
+	}
+}
+
+let MIEXP_CONST = {
+	savedata_key: 'miexp/savedata'
+	notification_head: 'MiExp'
+	notification_icon: null
+	text: {
+		welcome_message: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
+		earnedexp_message: @(exp){`獲得した経験値: {exp}`}
+		earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
+		earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
+		earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
+		levelup_message: @(){`レベルアップしました！`}
+		level_title_message: @(){`**MiExp 現在のレベル**`}
+		logindays: @(days){`ログイン日数: **{days}**日`}
+		currentlevel_message: @(lv){`現在のレベル: **{lv}**`}
+		progress_message: @(x sub scale next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
+		cmd_formtitle: @(){`MiExp: コマンドライン実行`}
+		help_formtitle: @(){`MiExp: コマンドラインヘルプ`}
+		datanotexist_dialog_head: @(){`データがありません`}
+		datanotexist_dialog_body: @(){`MiExpのデータが存在しないため、現在のレベルを確認できません。`}
+		formnotempty_dialog_head: @(){`フォームが空ではありません`}
+		formnotempty_dialog_body: @(){`この操作を行うには、フォームを空にする必要があります。`}
+		cmdnotfound_dialog_head: @(){`指定されたコマンドは存在しません`}
+		cmdnotfound_dialog_body: @(){`help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`}
+		invalidtype_dialog_head: @(){`形式が異なります`}
+		invalidtype_dialog_body: @(){`MiExpデータではない形式のデータが入力されました。`}
+		overwrite_dialog_head: @(){`この操作はデータを上書きします`}
+		overwrite_dialog_body: @(){`この操作によってもとあったデータは失われます。取り消すことはできません。`}
+		erase_dialog_head: @(){`データを削除します`}
+		erase_dialog_body: @(){`この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`}
+		cmdhelp: @(){[
+			`MiExp コマンドラインヘルプ`
+			``
+			`**利用可能なコマンド**(すべてのコマンドは大文字小文字を区別します)`
+			`help    このヘルプを表示する`
+			`share   共有テキストを表示する`
+			`export  MiExpデータのエクスポートを行う`
+			`import <jsonobject>`
+			`        MiExpデータのインポートを行う`
+			`reset   MiExpデータを消去する`
+			`なにも入力せずにコマンドラインを実行するとshareが実行されます。`
+			``
+			`**MiExp 経験値**`
+			`MiExp経験値はその日の最初のログイン時に加算されます。`
+			`経験値に影響する要素は以下のとおりです。`
+			`・直近のログイン日数`
+			`・フォローの数`
+			`・直近のフォロー解除`
+			`・前日のノート`
+			`・前日のリアクション`
+			`MiExp経験値にはゲージが存在し、256経験値で1本分のゲージになります。`
+			`ゲージを一定数貯めることでレベルを上げることができます。`
+			`レベルアップに必要なゲージ数は現在のレベルによって変化します。`
+			`tips: 一日に大量のアクティビティを行うよりも、毎日ログインを行って継続的に活動したほうが効率が良くなるよう、経験値アルゴリズムは調整されています。`
+			``
+			`**MiExp利用上の注意**`
+			`MiExpはMisskeyプラグインの特性上、知識があればデータの変更やコードの改変を行うことが簡単にできます。`
+			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
+		].join(Str:lf)}
+	}
+	exp: {
+		subscore_scale: 256
+	}
+}
+
+@dbg(msg) { if Plugin:config.debugMode { <: msg } }
+
+@value_or(value alt) { if Core:type(value) != 'null' { value } else { alt } }
+
+@starts_with(str search) { str.index_of(search) == 0 }
+
+@slice_before_with(str search) {
+	let i = str.index_of(search)
+	if i >= 0 { str.slice(0 i) } else { null }
+}
+
+@slice_after_with(str search) {
+	let i = str.index_of(search)
+	if i >= 0 { str.slice((i+search.len) str.len) } else { null }
+}
+
+//	Misskey API 通知送信
+@miexp_notify(body) {
+	if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) }
+}
+
+//	プラグインデータ保存
+@miexp_save(data) {
+	Mk:save(MIEXP_CONST.savedata_key data)
+}
+
+//	プラグインデータ取得
+@miexp_load() {
+	Mk:load(MIEXP_CONST.savedata_key)
+}
+
+//	AiScript標準日付 -> Miexp日付データ変換
+//	date: num	AiScriptで使用される日付データ
+@miexp_date(date) {
+	let LOCALTIME_DIFF = Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00 UTC`) - Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00`)
+	Math:floor(((date + LOCALTIME_DIFF) / 3600000 - 5) / 24)
+}
+
+@miexp_update_loginmap(data duration) {
+	if Core:type(data) == 'arr' {
+		data.push(duration)
+		data.reverse()
+		data.pop()
+		data.reverse()
+		data
+	} else {
+		var r = []
+		for 13 { r.push(null) }
+		r.push(duration)
+		r
+	}
+}
+
+@miexp_calc_exp(activitydata) {
+	var loginday = 0
+	var t_days = 0
+	for let i, 14 {
+		loginday += 1
+		t_days += value_or(activitydata.loginmap[activitydata.loginmap.len-1-i] 0)
+		if t_days >= 14 { break }
+	}
+
+	let note_n = Math:max(0, activitydata.notes.diffs.normal[0])
+	let note_e = Math:max(0, activitydata.notes.diffs.withFile[0])
+	let renote = Math:max(0, activitydata.notes.diffs.renote[0])
+	let follow = activitydata.following.local.followings.total[0]
+	var remove = 0
+	for let i, 14 {
+		remove += activitydata.following.local.followings.dec[i]
+	}
+	let reply = Math:max(0, activitydata.notes.diffs.reply[0])
+	let reaction = activitydata.reactions.local.count[0] + activitydata.reactions.remote.count[0]
+	let base = Math:floor( Math:sqrt( loginday / 14 ) * 128)
+	let unidirectinal = Math:floor( Math:sqrt(Math:sqrt( (note_n + note_e + Math:sqrt(renote)) / 128 )) * 128 )
+	let bidirectional_f1 = Math:sqrt(Math:sqrt( follow / 256 )) * (256 - Math:min(follow, 256)) / 256
+	let bidirectional_f2 = Math:sqrt(Math:sqrt(Math:sqrt( follow / 256 ))) * Math:min(follow, 256) / 256
+	let bidirectional_f = Math:max(0, bidirectional_f1 + bidirectional_f2 - remove / 64)
+	let bidirectional_as = reply * 4 + reaction
+	let bidirectional_a1 = Math:sqrt( bidirectional_as / 256 ) * (256 - Math:min(bidirectional_as, 256)) / 256 * (256 - Math:min(follow, 256)) / 256
+	let bidirectional_a2 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / 256 ))) * Math:min(bidirectional_as, 256) / 256 * (256 - Math:min(follow, 256)) / 256
+	let bidirectional_a3 = Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, follow) / 256) / 256 ) * (256 - Math:min(bidirectional_as / Math:sqrt(Math:max(1, follow) / 256), 256)) / 512 * Math:min(follow, 256) / 256
+	let bidirectional_a4 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, follow) / 256) / 256 ))) * Math:min(bidirectional_as / Math:sqrt(Math:max(1, follow) / 256), 256) / 256 * Math:min(follow, 256) / 256
+	let bidirectional_a = bidirectional_a1 + bidirectional_a2 + bidirectional_a3 + bidirectional_a4
+	let bidirectional = Math:floor( bidirectional_f * bidirectional_a * 256 )
+	let result = {
+		result: base + unidirectinal + bidirectional
+		base: base
+		unidirectinal: unidirectinal
+		bidirectional: bidirectional
+		bidirectional_parts: {
+			follow: bidirectional_f
+			follow_parts: [
+				bidirectional_f1
+				bidirectional_f2
+			]
+			activityscore: bidirectional_as
+			activity: bidirectional_a
+			activity_parts: [
+				bidirectional_a1
+				bidirectional_a2
+				bidirectional_a3
+				bidirectional_a4
+			]
+		}
+		params: {
+			loginday: loginday
+			note_n: note_n
+			note_e: note_e
+			follow: follow
+			remove: remove
+			reply: reply
+			renote: renote
+			reaction: reaction
+		}
+	}
+	dbg(result)
+	result
+}
+
+@miexp_nextlevel(level) {
+	1 + Math:floor( Math:sqrt(level / 64) * 8 )
+}
+
+@miexp_levelup(savedata) {
+	if savedata.score >= miexp_nextlevel(savedata.level) {
+		var r = savedata
+		r.score = r.score - savedata.level - 1
+		r.level = r.level + 1
+		miexp_levelup(r)
+	} else {
+		savedata
+	}
+}
+
+@miexp_cmd_help(args update) {
+	update('visibility' 'specified')
+	update('visibleUserIds' [])
+	update('text' MIEXP_CONST.text.cmdhelp())
+	MIEXP_CONST.text.cmdhelp()
+}
+
+@miexp_cmd_share(args update) {
+	var savedata = miexp_load()
+	let new_data = Core:type(savedata) != "obj"
+	if new_data {
+		Mk:dialog(MIEXP_CONST.text.datanotexist_dialog_head() MIEXP_CONST.text.datanotexist_dialog_body() 'error')
+		return null
+	}
+	let share_text = [
+		MIEXP_CONST.text.level_title_message()
+		MIEXP_CONST.text.logindays(savedata.loginday)
+		MIEXP_CONST.text.currentlevel_message(savedata.level)
+		MIEXP_CONST.text.progress_message(savedata.score savedata.subscore MIEXP_CONST.exp.subscore_scale miexp_nextlevel(savedata.level))
+	]
+	update('text' share_text.join(`{Str:lf}`))
+	share_text.join(`{Str:lf}`)
+}
+
+@miexp_cmd_login(args update) {
+	if Core:type(update) == 'fn' { update('text' '') }
+	var savedata = miexp_load()
+	dbg('loaded savedata')
+	dbg({ savedata: savedata })
+	var notify = []
+	let new_data = Core:type(savedata) != "obj"
+	if new_data {
+		dbg('new data')
+		notify.push(MIEXP_CONST.text.welcome_message())
+		savedata = {}
+	}
+	dbg({ today: miexp_date(Date:now()), lastupdate: value_or(savedata.lastupdate 0) })
+	let login_dur = miexp_date(Date:now()) - value_or(savedata.lastupdate 0)
+	if (!new_data) && (login_dur <= 0) {
+		dbg('already logged in')
+		return {
+			login: false
+			notify: null
+			savedata: savedata
+		}
+	}
+	let loginmap = miexp_update_loginmap(savedata.loginmap (if !new_data { login_dur } else { null }))
+	dbg({ loginmap: loginmap })
+	let calcexp = miexp_calc_exp({
+		following: Mk:api('charts/user/following' { span: 'day', limit: 14, userId: USER_ID })
+		notes: Mk:api('charts/user/notes' { span: 'day', limit: 1, userId: USER_ID })
+		reactions: Mk:api('charts/user/reactions' { span: 'day', limit: 1, userId: USER_ID })
+		loginmap: loginmap
+	})
+	notify.push(MIEXP_CONST.text.earnedexp_message(calcexp.result))
+	notify.push(MIEXP_CONST.text.earnedexp_base(calcexp.base))
+	notify.push(MIEXP_CONST.text.earnedexp_unidirectional(calcexp.unidirectinal))
+	notify.push(MIEXP_CONST.text.earnedexp_bidirectional(calcexp.bidirectional))
+	let earned_exp = calcexp.result
+	dbg({ earned_score: earned_exp })
+	let old_level = value_or(savedata.level 0)
+	savedata = miexp_levelup({
+		loginday: value_or(savedata.loginday 0) + 1
+		loginmap: loginmap
+		subscore: Math:floor((value_or(savedata.subscore 0) + earned_exp) % MIEXP_CONST.exp.subscore_scale)
+		score: Math:floor(value_or(savedata.score 0) + (value_or(savedata.subscore 0) + earned_exp) / MIEXP_CONST.exp.subscore_scale)
+		level: old_level + 0
+		lastupdate: miexp_date(Date:now())
+	})
+	dbg({ updated_savedata: savedata })
+	let levelup = savedata.level > old_level
+	if (!new_data) && (levelup) {
+		dbg(`level up`)
+		notify.push(MIEXP_CONST.text.levelup_message())
+	}
+	notify.push('')
+	notify.push(MIEXP_CONST.text.level_title_message())
+	notify.push(MIEXP_CONST.text.logindays(savedata.loginday))
+	notify.push(MIEXP_CONST.text.currentlevel_message(savedata.level))
+	notify.push(MIEXP_CONST.text.progress_message(savedata.score savedata.subscore MIEXP_CONST.exp.subscore_scale (savedata.level+1)))
+	miexp_save(savedata)
+	dbg(`saved`)
+	let result = {
+		login: true
+		notify: notify
+		savedata: savedata
+	}
+	dbg(result)
+	result
+}
+
+@miexp_cmd_export(args update) {
+	var savedata = miexp_load()
+	let new_data = Core:type(savedata) != "obj"
+	if new_data {
+		Mk:dialog(MIEXP_CONST.text.datanotexist_dialog_head() MIEXP_CONST.text.datanotexist_dialog_body() 'error')
+		return null
+	}
+	update('text' Json:stringify(savedata))
+	Json:stringify(savedata)
+}
+
+@miexp_cmd_import(args update) {
+	let savedata = Json:parse(args)
+	if Core:type(savedata.loginday) != 'num' {
+		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
+		return null
+	}
+	if Core:type(savedata.loginmap) != 'arr' {
+		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
+		return null
+	}
+	if Core:type(savedata.subscore) != 'num' {
+		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
+		return null
+	}
+	if Core:type(savedata.score) != 'num' {
+		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
+		return null
+	}
+	if Core:type(savedata.level) != 'num' {
+		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
+		return null
+	}
+	if Core:type(savedata.lastupdate) != 'num' {
+		Mk:dialog(MIEXP_CONST.text.invalidtype_dialog_head() MIEXP_CONST.text.invalidtype_dialog_body() 'error')
+		return null
+	}
+	if !Mk:confirm(MIEXP_CONST.text.overwrite_dialog_head() MIEXP_CONST.text.overwrite_dialog_body() 'warn') {
+		return null
+	}
+	miexp_save(savedata)
+	update('text' '')
+}
+
+@miexp_cmd_reset(args update) {
+	if !Mk:confirm(MIEXP_CONST.text.erase_dialog_head() MIEXP_CONST.text.erase_dialog_body() 'warn') {
+		return null
+	}
+	miexp_save(null)
+	update('text' '')
+}
+
+@miexp_cmd_notfound() {
+	Mk:dialog(MIEXP_CONST.text.cmdnotfound_dialog_head() MIEXP_CONST.text.cmdnotfound_dialog_body() 'error')
+	return null
+}
+
+@on_load() {
+	dbg('@on_load')
+	let result = miexp_cmd_login('' null)
+	if result.login {
+		dbg({notify: result.notify})
+		miexp_notify(result.notify.join(`{Str:lf}`))
+	}
+}
+
+@on_cmd(note update) {
+	dbg('@on_cmd')
+	if (note.text.len <= 0) {
+		return miexp_cmd_share('' update)
+	}
+	let command = value_or(slice_before_with(note.text ' ') note.text)
+	match (command) {
+		'help' => miexp_cmd_help(value_or(slice_after_with(note.text ' ') '') update)
+		'share' => miexp_cmd_share(value_or(slice_after_with(note.text ' ') '') update)
+		'export' => miexp_cmd_export(value_or(slice_after_with(note.text ' ') '') update)
+		'import' => miexp_cmd_import(value_or(slice_after_with(note.text ' ') '') update)
+		'reset' => miexp_cmd_reset(value_or(slice_after_with(note.text ' ') '') update)
+		* => miexp_cmd_notfound()
+	}
+}
+
+@on_help(note update) {
+	if (note.text.len > 0) {
+		Mk:dialog(MIEXP_CONST.text.formnotempty_dialog_head() MIEXP_CONST.text.formnotempty_dialog_body() 'error')
+		return null
+	}
+	miexp_cmd_help('' update)
+}
+
+Plugin:register_post_form_action(MIEXP_CONST.text.cmd_formtitle() on_cmd)
+if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MIEXP_CONST.text.help_formtitle() on_help) }
+on_load()
