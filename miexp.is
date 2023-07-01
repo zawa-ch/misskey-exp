@@ -3,7 +3,7 @@
 	name: "MiExp"
 	author: "zawa-ch."
 	description: "あなたのMisskeyでの活動から経験値を集計します"
-	version: "1.0.1"
+	version: "1.0.2"
 	permissions: [
 		//	write:notifications
 		//	ログインやレベルアップを通知するために必要になります。
@@ -31,6 +31,8 @@
 		}
 	}
 }
+//	1.0.2 update
+//	レベルアップ処理がうまくいかない問題の修正
 //	1.0.1 update
 //	通常ノートとファイル付きノートが二重で集計されているので修正
 
@@ -152,33 +154,16 @@ let MIEXP_CONST = {
 }
 
 @miexp_calc_exp(activitydata) {
-	var loginday = 0
-	var t_days = 0
-	for let i, 14 {
-		loginday += 1
-		t_days += value_or(activitydata.loginmap[activitydata.loginmap.len-1-i] 0)
-		if t_days >= 14 { break }
-	}
-
-	let note_n = Math:max(0, activitydata.notes.diffs.normal[0])
-	let renote = Math:max(0, activitydata.notes.diffs.renote[0])
-	let follow = activitydata.following.local.followings.total[0]
-	var remove = 0
-	for let i, 14 {
-		remove += activitydata.following.local.followings.dec[i]
-	}
-	let reply = Math:max(0, activitydata.notes.diffs.reply[0])
-	let reaction = activitydata.reactions.local.count[0] + activitydata.reactions.remote.count[0]
-	let base = Math:floor( Math:sqrt( loginday / 14 ) * 128)
-	let unidirectinal = Math:floor( Math:sqrt(Math:sqrt( (note_n + Math:sqrt(renote)) / 128 )) * 128 )
-	let bidirectional_f1 = Math:sqrt(Math:sqrt( follow / 256 )) * (256 - Math:min(follow, 256)) / 256
-	let bidirectional_f2 = Math:sqrt(Math:sqrt(Math:sqrt( follow / 256 ))) * Math:min(follow, 256) / 256
-	let bidirectional_f = Math:max(0, bidirectional_f1 + bidirectional_f2 - remove / 64)
-	let bidirectional_as = reply * 4 + reaction
-	let bidirectional_a1 = Math:sqrt( bidirectional_as / 256 ) * (256 - Math:min(bidirectional_as, 256)) / 256 * (256 - Math:min(follow, 256)) / 256
-	let bidirectional_a2 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / 256 ))) * Math:min(bidirectional_as, 256) / 256 * (256 - Math:min(follow, 256)) / 256
-	let bidirectional_a3 = Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, follow) / 256) / 256 ) * (256 - Math:min(bidirectional_as / Math:sqrt(Math:max(1, follow) / 256), 256)) / 512 * Math:min(follow, 256) / 256
-	let bidirectional_a4 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, follow) / 256) / 256 ))) * Math:min(bidirectional_as / Math:sqrt(Math:max(1, follow) / 256), 256) / 256 * Math:min(follow, 256) / 256
+	let base = Math:floor( Math:sqrt( activitydata.loginday / 14 ) * 128)
+	let unidirectinal = Math:floor( Math:sqrt(Math:sqrt( (activitydata.notes.normal + Math:sqrt(activitydata.notes.renote)) / 128 )) * 128 )
+	let bidirectional_f1 = Math:sqrt(Math:sqrt( activitydata.follow.following / 256 )) * (256 - Math:min(activitydata.follow.following, 256)) / 256
+	let bidirectional_f2 = Math:sqrt(Math:sqrt(Math:sqrt( activitydata.follow.following / 256 ))) * Math:min(activitydata.follow.following, 256) / 256
+	let bidirectional_f = Math:max(0, bidirectional_f1 + bidirectional_f2 - activitydata.follow.remove / 64)
+	let bidirectional_as = activitydata.notes.reply * 4 + activitydata.reaction
+	let bidirectional_a1 = Math:sqrt( bidirectional_as / 256 ) * (256 - Math:min(bidirectional_as, 256)) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
+	let bidirectional_a2 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / 256 ))) * Math:min(bidirectional_as, 256) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
+	let bidirectional_a3 = Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ) * (256 - Math:min(bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256)) / 512 * Math:min(activitydata.follow.following, 256) / 256
+	let bidirectional_a4 = Math:sqrt(Math:sqrt(Math:sqrt( bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ))) * Math:min(bidirectional_as / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256) / 256 * Math:min(activitydata.follow.following, 256) / 256
 	let bidirectional_a = bidirectional_a1 + bidirectional_a2 + bidirectional_a3 + bidirectional_a4
 	let bidirectional = Math:floor( bidirectional_f * bidirectional_a * 256 )
 	let result = {
@@ -201,16 +186,7 @@ let MIEXP_CONST = {
 				bidirectional_a4
 			]
 		}
-		params: {
-			loginday: loginday
-			note_n: note_n
-			note_e: note_e
-			follow: follow
-			remove: remove
-			reply: reply
-			renote: renote
-			reaction: reaction
-		}
+		params: activitydata
 	}
 	dbg(result)
 	result
@@ -223,7 +199,7 @@ let MIEXP_CONST = {
 @miexp_levelup(savedata) {
 	if savedata.score >= miexp_nextlevel(savedata.level) {
 		var r = savedata
-		r.score = r.score - savedata.level - 1
+		r.score = r.score - miexp_nextlevel(savedata.level)
 		r.level = r.level + 1
 		miexp_levelup(r)
 	} else {
@@ -280,10 +256,41 @@ let MIEXP_CONST = {
 	let loginmap = miexp_update_loginmap(savedata.loginmap (if !new_data { login_dur } else { null }))
 	dbg({ loginmap: loginmap })
 	let calcexp = miexp_calc_exp({
-		following: Mk:api('charts/user/following' { span: 'day', limit: 14, userId: USER_ID })
-		notes: Mk:api('charts/user/notes' { span: 'day', limit: 1, userId: USER_ID })
-		reactions: Mk:api('charts/user/reactions' { span: 'day', limit: 1, userId: USER_ID })
-		loginmap: loginmap
+		loginday: expr {
+			var loginday = 0
+			var t_days = 0
+			for let i, 14 {
+				loginday += 1
+				t_days += value_or(loginmap[loginmap.len-1-i] 0)
+				if t_days >= 14 { break }
+			}
+			loginday
+		}
+		notes: expr {
+			let chart_notes = Mk:api('charts/user/notes' { span: 'day', limit: 1, userId: USER_ID })
+			{
+				normal: Math:max(0, chart_notes.diffs.normal[0])
+				renote: Math:max(0, chart_notes.diffs.renote[0])
+				reply: Math:max(0, chart_notes.diffs.reply[0])
+			}
+		}
+		follow: expr {
+			let chart_following = Mk:api('charts/user/following' { span: 'day', limit: 14, userId: USER_ID })
+			{
+				following: chart_following.local.followings.total[0]
+				remove: expr {
+					var remove = 0
+					for let i, 14 {
+						remove += chart_following.local.followings.dec[i]
+					}
+					remove
+				}
+			}
+		}
+		reaction: expr {
+			let chart_reactions = Mk:api('charts/user/reactions' { span: 'day', limit: 1, userId: USER_ID })
+			chart_reactions.local.count[0] + chart_reactions.remote.count[0]
+		}
 	})
 	notify.push(MIEXP_CONST.text.earnedexp_message(calcexp.result))
 	notify.push(MIEXP_CONST.text.earnedexp_base(calcexp.base))
