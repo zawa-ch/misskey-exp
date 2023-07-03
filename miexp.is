@@ -54,9 +54,9 @@ let MIEXP_CONST = {
 
 @MiExpSaveUtil(save) {
 	@is_type(value, type) { Core:type(value) == type }
-	//  セーブデータからバージョンを検出する
-	//  save: any  セーブデータ
-	//  <- num|null  検出したバージョン、検出できない場合はnull
+	//	セーブデータからバージョンを検出する
+	//	save: any	セーブデータ
+	//	<- num|null	検出したバージョン、検出できない場合はnull
 	@detect_version(save) {
 		if Core:type(save) != 'obj' { return null }
 		if Core:type(save.schema) != 'obj' { return 0 }
