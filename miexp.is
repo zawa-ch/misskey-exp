@@ -76,7 +76,7 @@ let MIEXP_CONST = {
 			save.schema.context == 'miexp' && save.schema.version == 1
 		}
 	]
-	let LOCALTIME_DIFF = Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00`)
+	let LOCALTIME_DIFF = Date:parse( `{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00` )
 	//	セーブデータのアップグレードを行うバージョン別関数
 	let updator = [
 		//	version 0 (-> 1)
@@ -200,7 +200,7 @@ let MIEXP_CONST = {
 	//	AiScript標準日付 -> Miexp日付データ変換
 	//	date: num	AiScriptで使用される日付データ
 	@convert_date(date) {
-		let LOCALTIME_DIFF = Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00 UTC`) - Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00`)
+		let LOCALTIME_DIFF = Date:parse( `{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00 UTC`) - Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00` )
 		Math:floor(((date + LOCALTIME_DIFF) / 3600000 - 5) / 24)
 	}
 	//	経験値計算
