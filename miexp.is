@@ -65,7 +65,7 @@ let MIEXP_CONST = {
 		save.schema.version
 	}
 	let LATEST_VERSION = 1
-	//  セーブデータの妥当性を検出するバージョン別関数
+	//	セーブデータの妥当性を検出するバージョン別関数
 	let validation_detector = [
 		//	version 0 (1.0.0 - 1.0.3)
 		@(save) { is_type(save.loginday, 'num') && is_type(save.loginmap, 'arr') && is_type(save.subscore, 'num') && is_type(save.score, 'num') && is_type(save.level, 'num') && is_type(save.lastupdate, 'num') }
