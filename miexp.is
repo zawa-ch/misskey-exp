@@ -32,6 +32,7 @@
 	}
 }
 //	1.2.0 update
+//	経験値計算アルゴリズムの調整
 
 let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
@@ -199,29 +200,48 @@ let MIEXP_CONST = {
 	//	経験値計算
 	@calc_exp(activitydata) {
 		let result = eval {
-			let b = Math:floor( Math:sqrt( activitydata.login_freq / 14 ) * 128)
-			let ud = Math:floor( Math:sqrt(Math:sqrt( (activitydata.notes.normal + Math:sqrt(activitydata.notes.renote)) / 128 )) * 128 )
-			let bd = eval {
-				let bd_a = eval {
-					let score = activitydata.notes.reply * 4 + activitydata.reaction
-					let parts = [
-						Math:sqrt( score / 256 ) * (256 - Math:min(score, 256)) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
-						Math:sqrt(Math:sqrt(Math:sqrt( score / 256 ))) * Math:min(score, 256) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
-						Math:sqrt( score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ) * (256 - Math:min(score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256)) / 512 * Math:min(activitydata.follow.following, 256) / 256
-						Math:sqrt(Math:sqrt(Math:sqrt( score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ))) * Math:min(score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256) / 256 * Math:min(activitydata.follow.following, 256) / 256
+			let s = eval {
+				let sf = eval {
+					let ft = 128	// フォローアクティビティの基準しきい値(これを超えると一気に増えにくくなる)
+					let fs = 64	// フォローアクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+					let f_parts = [
+						Math:sqrt( activitydata.follow.following / ft ) * (ft - Math:min(activitydata.follow.following, ft)) / ft
+						Math:sqrt(Math:sqrt(Math:sqrt( activitydata.follow.following / ft ))) * Math:min(activitydata.follow.following, ft) / ft
 					]
-					{ score: score, parts: parts, result: parts[0] + parts[1] + parts[2] + parts[3] }
+					{ parts: f_parts, result: (f_parts[0] + f_parts[1]) * fs }
 				}
-				var bd_f = eval {
-					let parts = [
-						Math:sqrt(Math:sqrt( activitydata.follow.following / 256 )) * (256 - Math:min(activitydata.follow.following, 256)) / 256
-						Math:sqrt(Math:sqrt(Math:sqrt( activitydata.follow.following / 256 ))) * Math:min(activitydata.follow.following, 256) / 256
-					]
-					{ parts: parts, result: Math:max(0, parts[0] + parts[1] - activitydata.follow.remove / 64) }
+				let ss = eval {
+					let sa = 64	// ログイン頻度が高い場合に付与されるボーナスの最大
+					Math:sqrt( activitydata.login_freq / 14 ) * sa
 				}
-				{ follow: bd_f, activity: bd_a, result: Math:floor( bd_f.result * bd_a.result * 256 ) }
+				let rs = 1	// リムーブペナルティの倍率
+				{ follow: sf, login: ss, result: Math:floor( Math:max(0, sf.result + ss - activitydata.follow.remove * rs) ) }
 			}
-			{ params: activitydata, base: b, unidirectinal: ud, bidirectional: bd, result: b + ud + bd.result }
+			let u = eval {
+				let as = activitydata.notes.normal + Math:sqrt(activitydata.notes.renote)
+				let ut = 128	// 単方向的アクティビティの基準しきい値(これを超えると増えにくくなる)
+				let us = 128	// 単方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+				{ score: as, result: Math:floor( Math:sqrt(Math:sqrt( as / ut )) * us ) }
+			}
+			let b = eval {
+				let at = 256	// アクティビティの基準しきい値(これを超えると増えにくくなる)
+				let ft = 256	// フォローの基準しきい値(これを超えると増えにくくなる)
+				let as = eval {
+					let rw = 4	// リプライのポイント付けの重み
+					let aw = 1	// リアクションのポイント付けの重み
+					let sb = activitydata.notes.reply * rw + activitydata.reaction * aw
+					{ base: sb, s1: sb / at, s2: sb / ( at * Math:sqrt( Math:max(1,activitydata.follow.following) / ft ) ) }
+				}
+				let b_parts = [
+					Math:sqrt( as.s1 ) * ( 1 - Math:min(as.s1, 1) ) * ( 1 - Math:min(activitydata.follow.following / ft, 1) )
+					Math:sqrt(Math:sqrt(Math:sqrt( as.s1 ))) * Math:min(as.s1, 1) * ( 1 - Math:min(activitydata.follow.following / ft, 1) )
+					Math:sqrt( as.s2 ) * ( 1 - Math:min(as.s2, 1) ) * Math:min(activitydata.follow.following / ft, 1)
+					Math:sqrt(Math:sqrt(Math:sqrt( as.s2 ))) * Math:min(as.s2, 1) * Math:min(activitydata.follow.following / ft, 1)
+				]
+				let ss = 256	// 双方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+				{ score: as, parts: b_parts, result: Math:floor( (b_parts[0] + b_parts[1] + b_parts[2] + b_parts[3]) * ss ) }
+			}
+			{ params: activitydata, base: s, unidirectional: u, bidirectional: b, result: s.result + u.result + b.result }
 		}
 		dbg(Json:stringify(result))
 		result
@@ -346,8 +366,8 @@ let MIEXP_CONST = {
 			let earned_exp = calc_exp({login_freq: login_freq, notes: activity.notes, follow: activity.follow, reaction: activity.reaction})
 			dbg(Json:stringify({earned_exp: earned_exp}))
 			message.push(LOCALIZATION.earnedexp_message(earned_exp.result))
-			message.push(LOCALIZATION.earnedexp_base(earned_exp.base))
-			message.push(LOCALIZATION.earnedexp_unidirectional(earned_exp.unidirectinal))
+			message.push(LOCALIZATION.earnedexp_base(earned_exp.base.result))
+			message.push(LOCALIZATION.earnedexp_unidirectional(earned_exp.unidirectional.result))
 			message.push(LOCALIZATION.earnedexp_bidirectional(earned_exp.bidirectional.result))
 			let old_level = value_or(data.exp.level, 0)
 			let new_exp = levelup(data.exp, earned_exp.result)
