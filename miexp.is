@@ -39,7 +39,6 @@
 
 let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
-	activitycache_key: 'miexp/activity_cache'
 	notification_head: 'MiExp'
 	notification_icon: null
 	//	If you want to translate, edit here
@@ -299,7 +298,6 @@ let Result = {
 	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context type is not obj' }) }
 	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' }) }
 	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' }) }
-	if !check_type(context.get_activity, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.get_activity type is not fn' }) }
 	@dbg(msg) { if check_type(context.debug, 'fn') { context.debug(msg) } }
 	//	ログインマップデータの更新
 	@update_loginmap(map, duration) {
@@ -314,55 +312,6 @@ let Result = {
 	@convert_date(date) {
 		let LOCALTIME_DIFF = Date:parse( `{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00 UTC`) - Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00` )
 		Math:floor(((date + LOCALTIME_DIFF) / 3600000 - 5) / 24)
-	}
-	//	経験値計算
-	@calc_exp(activity) {
-		let result = eval {
-			let s = eval {
-				let sf = eval {
-					let ft = 128	// フォローアクティビティの基準しきい値(これを超えると一気に増えにくくなる)
-					let fs = 64	// フォローアクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
-					let f_parts = [
-						Math:sqrt( activity.fw / ft ) * (ft - Math:min(activity.fw, ft)) / ft
-						Math:sqrt(Math:sqrt(Math:sqrt( activity.fw / ft ))) * Math:min(activity.fw, ft) / ft
-					]
-					{ parts: f_parts, result: (f_parts[0] + f_parts[1]) * fs }
-				}
-				let ss = eval {
-					let sa = 64	// ログイン頻度が高い場合に付与されるボーナスの最大
-					Math:sqrt( activity.fq / 14 ) * sa
-				}
-				let rs = 1	// リムーブペナルティの倍率
-				{ follow: sf, login: ss, result: Math:floor( Math:max(0, sf.result + ss - activity.rm * rs) ) }
-			}
-			let u = eval {
-				let as = activity.nn + Math:sqrt(activity.rn)
-				let ut = 128	// 単方向的アクティビティの基準しきい値(これを超えると増えにくくなる)
-				let us = 128	// 単方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
-				{ score: as, result: Math:floor( Math:sqrt(Math:sqrt( as / ut )) * us ) }
-			}
-			let b = eval {
-				let at = 256	// アクティビティの基準しきい値(これを超えると増えにくくなる)
-				let ft = 256	// フォローの基準しきい値(これを超えると増えにくくなる)
-				let as = eval {
-					let rw = 4	// リプライのポイント付けの重み
-					let aw = 1	// リアクションのポイント付けの重み
-					let sb = activity.re * rw + activity.ra * aw
-					{ base: sb, s1: sb / at, s2: sb / ( at * Math:sqrt( Math:max(1,activity.fw) / ft ) ) }
-				}
-				let b_parts = [
-					Math:sqrt( as.s1 ) * ( 1 - Math:min(as.s1, 1) ) * ( 1 - Math:min(activity.fw / ft, 1) )
-					Math:sqrt(Math:sqrt(Math:sqrt( as.s1 ))) * Math:min(as.s1, 1) * ( 1 - Math:min(activity.fw / ft, 1) )
-					Math:sqrt( as.s2 ) * ( 1 - Math:min(as.s2, 1) ) * Math:min(activity.fw / ft, 1)
-					Math:sqrt(Math:sqrt(Math:sqrt( as.s2 ))) * Math:min(as.s2, 1) * Math:min(activity.fw / ft, 1)
-				]
-				let ss = 256	// 双方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
-				{ score: as, parts: b_parts, result: Math:floor( (b_parts[0] + b_parts[1] + b_parts[2] + b_parts[3]) * ss ) }
-			}
-			{ params: activity, base: s, unidirectional: u, bidirectional: b, result: s.result + u.result + b.result }
-		}
-		dbg(Json:stringify(result))
-		result
 	}
 	//	次レベルまでに必要なゲージ数の取得
 	@calc_nextlevel(level) { 1 + Math:floor( Math:sqrt(level / 64) * 8 ) }
@@ -398,6 +347,7 @@ let Result = {
 	dbg(Json:stringify({ savedata: data.data() }))
 
 	Result.ok({
+		data: @() { data }
 		//	ヘルプを表示するための要素を取得
 		help: @() {
 			dbg('@Miexp:help')
@@ -416,16 +366,14 @@ let Result = {
 			].join(Str:lf)
 			Result.ok({ message: message })
 		}
-		get_lastlogin: @() {
-			if check_type(data, 'obj') { data.lastlogin } else { null }
-		}
 		//	その日のログイン処理を行えるかを取得
 		is_login_available: @() {
 			dbg('@Miexp:is_login_available')
 			{ result: is_login_available(data, Date:now()) }
 		}
 		//	ログイン処理を実行
-		login: @() {
+		//	calc: obj	経験値計算用オブジェクト
+		login: @(calc) {
 			dbg('@Miexp:login')
 			let current_time = Date:now()
 			if !is_login_available(data, current_time) {
@@ -454,16 +402,9 @@ let Result = {
 				}
 				r
 			}
-			let activity = context.get_activity()
-			dbg(Json:stringify({ activity: activity }))
-			if !check_type(activity, 'obj') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.', message: 'Callback "get_activity" returns invalid object.' }) }
-			if !check_type(activity.nn, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.nn', message: 'Callback "get_activity" returns invalid object.' }) }
-			if !check_type(activity.rn, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.rn', message: 'Callback "get_activity" returns invalid object.' }) }
-			if !check_type(activity.re, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.re', message: 'Callback "get_activity" returns invalid object.' }) }
-			if !check_type(activity.fw, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.fw', message: 'Callback "get_activity" returns invalid object.' }) }
-			if !check_type(activity.rm, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.rm', message: 'Callback "get_activity" returns invalid object.' }) }
-			if !check_type(activity.ra, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.ra', message: 'Callback "get_activity" returns invalid object.' }) }
-			let earned_exp = calc_exp({fq: login_freq, nn: activity.nn, rn: activity.rn, re: activity.re, fw: activity.fw, rm: activity.rm, ra: activity.ra })
+			let calc_result = calc.calculate(login_freq)
+			if calc_result.is_err() { return Result.error({ code: 'LOGIN_FAILED', inner: calc_result.error }) }
+			let earned_exp = calc_result.ok()
 			dbg(Json:stringify({earned_exp: earned_exp}))
 			message.push(LOCALIZATION.earnedexp_message(earned_exp.result))
 			message.push(LOCALIZATION.earnedexp_base(earned_exp.base.result))
@@ -573,56 +514,52 @@ let Result = {
 //	プラグインデータ取得
 @miexp_load() { Mk:load(MIEXP_CONST.savedata_key) }
 
-//	経験値集計用データをMiExp本体に通知
-@miexp_get_activity() {
-	let activity = Mk:load(MIEXP_CONST.activitycache_key).activity
-	Mk:save(MIEXP_CONST.activitycache_key, null)
-	activity
-}
-
-//	チャートから経験値計算用のデータを取得
-@miexp_collect_chart(inst) {
-	if Plugin:config.debugMode { <: '@miexp_collect_chart' }
-	let retry_glacetime = [ 0, 5000, 15000, 60000, 300000, 1800000 ]
-	var c = Mk:load(MIEXP_CONST.activitycache_key)
-	if Core:type(c) != 'obj' { c = { date: null, user_cache: { done: false }, follow_cache: { done: false }, note_cache: { done: false }, reaction_cache: { done: false }, activity: {}, retry_count: 0 } }
-	if Core:type(c.date) != 'num' { c.date = { last: inst.get_lastlogin() } }
-	@on_failure() {
-		c.retry_count = c.retry_count + 1
-		Mk:save(MIEXP_CONST.activitycache_key, c)
-		if Plugin:config.debugMode { <: Json:stringify({saved_cache: c}) }
-		let wait_time = retry_glacetime[Math:min(c.retry_count, retry_glacetime.len - 1)]
-		if Plugin:config.debugMode { <: `Data fetch failed, retry in {wait_time}ms` }
-		Async:timeout(wait_time, @() { miexp_collect_chart(inst) })
+@MiExpCalculator(save) {
+	if Plugin:config.debugMode { <: '@MiExpCalculator()' }
+	if Plugin:config.debugMode { <: Json:stringify({ save: save }) }
+	var c = { date: null, user_cache: { done: false }, follow_cache: { done: false }, note_cache: { done: false }, reaction_cache: { done: false }, fetch_done: false, activity: {} }
+	@is_collected() { c.fetch_done }
+	@dispatch_api(endpoint, args) {
+		var api_returned = false
+		var api_result = null
+		let api_timeout = 5000
+		let a2 = Async:timeout(api_timeout, @() {
+			api_result = Result.error({ endpoint: endpoint, args: args, code: 'API_TIMEOUT' })
+			api_returned = true
+		})
+		let a1 = Async:timeout(0, @() {
+			api_result = Result.ok({ endpoint: endpoint, args: args, returns: Mk:api(endpoint, args) })
+			api_returned = true
+		})
+		loop { if api_returned { break } }
+		a1()
+		a2()
+		if Plugin:config.debugMode { <: Json:stringify(api_result) }
+		return api_result
 	}
 	@user() {
-		if c.user_cache.done { return true }
-		let api_endpoint = 'users/show'
-		let api_args = { userId: USER_ID }
-		let api_result = Mk:api(api_endpoint, api_args)
-		if Plugin:config.debugMode { <: Json:stringify({api_endpoint: api_endpoint, api_args: api_args, api_result: api_result}) }
-		if Core:type(api_result.code) != 'null' { return false }
-		c.activity.fw = api_result.followingCount
+		if c.user_cache.done { return Result.ok(null) }
+		let api_result = dispatch_api('users/show', { userId: USER_ID })
+		if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+		c.activity.fw = api_result.ok().returns.followingCount
 		c.user_cache.done = true
-		c.retry_count = 0
-		return true
+		return Result.ok(null)
 	}
-	if !user() { return on_failure() }
 	@notes() {
-		if c.note_cache.done { return true }
+		if c.note_cache.done { return Result.ok(null) }
 		let LOCALTIME_DIFF = Date:parse( `{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00` )
 		let sdate = if Core:type(c.date.last) == 'num' { c.date.last } else { Date:now() - LOCALTIME_DIFF - (Date:now() % 86400000) - 68400000 }
 		if Core:type(c.note_cache.notes) != 'arr' { c.note_cache.notes = [] }
 		loop {
-			let api_endpoint = 'users/notes'
 			let api_args = if Core:type(c.note_cache.sid) == 'str' { { userId: USER_ID, includeReplies: true, sinceId: c.note_cache.sid } } else { { userId: USER_ID, includeReplies: true, sinceDate: sdate } }
-			let api_result = Mk:api(api_endpoint, api_args)
-			if Plugin:config.debugMode { <: Json:stringify({api_endpoint: api_endpoint, api_args: api_args, api_result: api_result}) }
-			if Core:type(api_result) == 'null' { break }
-			if Core:type(api_result) != 'arr' { return false }
-			if api_result.len == 0 { break }
-			c.note_cache.notes = c.note_cache.notes.concat(api_result)
-			c.note_cache.sid = api_result[api_result.len - 1].id
+			let api_result = dispatch_api('users/notes', api_args)
+			if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+			if Core:type(api_result.ok().returns) == 'null' { break }
+			let unwrapped_result = api_result.ok().returns
+			if Core:type(unwrapped_result) != 'arr' { return Result.error({ code: 'API_RESULT_CONDITION_ERROR', returns: unwrapped_result }) }
+			if unwrapped_result.len == 0 { break }
+			c.note_cache.notes = c.note_cache.notes.concat(unwrapped_result)
+			c.note_cache.sid = unwrapped_result[unwrapped_result.len - 1].id
 		}
 		var r = c.note_cache.notes.map(@(item){
 			if item.visibility == 'specified' { { nn: 0, rn: 0, re: 0 } }
@@ -636,38 +573,31 @@ let Result = {
 		c.activity.re = r.re
 		c.note_cache.done = true
 		c.note_cache.notes = null
-		c.retry_count = 0
-		return true
+		return Result.ok(null)
 	}
-	if !notes() { return on_failure() }
 	@follow() {
-		if c.follow_cache.done { return true }
-		let api_endpoint = 'charts/user/following'
-		let api_args = { span: 'day', limit: 14, userId: USER_ID }
-		let api_result = Mk:api(api_endpoint, api_args)
-		if Plugin:config.debugMode { <: Json:stringify({api_endpoint: api_endpoint, api_args: api_args, api_result: api_result}) }
-		if Core:type(api_result.code) != 'null' { return false }
-		c.activity.rm = api_result.local.followings.dec.reduce(@(o, i, n){ o + i }, 0)
+		if c.follow_cache.done { return Result.ok(null) }
+		let api_result = dispatch_api('charts/user/following', { span: 'day', limit: 14, userId: USER_ID })
+		if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+		c.activity.rm = api_result.ok().returns.local.followings.dec.reduce(@(o, i, n){ o + i }, 0)
 		c.follow_cache.done = true
-		c.retry_count = 0
-		return true
+		return Result.ok(null)
 	}
-	if !follow() { return on_failure() }
 	@reactions() {
-		if c.reaction_cache.done { return true }
+		if c.reaction_cache.done { return Result.ok(null) }
 		let LOCALTIME_DIFF = Date:parse( `{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00` )
 		let sdate = if Core:type(c.date.last) == 'num' { c.date.last } else { Date:now() - LOCALTIME_DIFF - (Date:now() % 86400000) - 68400000 }
 		if Core:type(c.reaction_cache.reactions) != 'arr' { c.reaction_cache.reactions = [] }
 		loop {
-			let api_endpoint = 'users/reactions'
 			let api_args = if Core:type(c.reaction_cache.sid) == 'str' { { userId: USER_ID, sinceId: c.reaction_cache.sid } } else { { userId: USER_ID, sinceDate: sdate } }
-			let api_result = Mk:api(api_endpoint, api_args)
-			if Plugin:config.debugMode { <: Json:stringify({api_endpoint: api_endpoint, api_args: api_args, api_result: api_result}) }
-			if Core:type(api_result) == 'null' { break }
-			if Core:type(api_result) != 'arr' { return false }
-			if api_result.len == 0 { break }
-			c.reaction_cache.reactions = c.reaction_cache.reactions.concat(api_result)
-			c.reaction_cache.sid = api_result[api_result.len - 1].id
+			let api_result = dispatch_api('users/reactions', api_args)
+			if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+			if Core:type(api_result.ok().returns) == 'null' { break }
+			let unwrapped_result = api_result.ok().returns
+			if Core:type(unwrapped_result) != 'arr' { return Result.error({ code: 'API_RESULT_CONDITION_ERROR', returns: unwrapped_result }) }
+			if unwrapped_result.len == 0 { break }
+			c.reaction_cache.reactions = c.reaction_cache.reactions.concat(unwrapped_result)
+			c.reaction_cache.sid = unwrapped_result[unwrapped_result.len - 1].id
 		}
 		let r = c.reaction_cache.reactions.filter(@(item){
 			item.note.userId != USER_ID
@@ -675,27 +605,88 @@ let Result = {
 		c.activity.ra = r.len
 		c.reaction_cache.done = true
 		c.reaction_cache.reactions = null
-		c.retry_count = 0
-		return true
+		return Result.ok(null)
 	}
-	if !reactions() { return on_failure() }
-	if Plugin:config.debugMode { <: c }
-	Mk:save(MIEXP_CONST.activitycache_key, c)
-	if Plugin:config.debugMode { <: 'Data corrected, run login task' }
-	let result = inst.login()
-	if Plugin:config.debugMode { <: result }
-	elif result.is_err() {
-		<: result
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.err().code}`, 'error')
+	@calc_exp(login_freq) {
+		let s = eval {
+			let sf = eval {
+				let ft = 128	// フォローアクティビティの基準しきい値(これを超えると一気に増えにくくなる)
+				let fs = 64	// フォローアクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+				let f_parts = [
+					Math:sqrt( c.activity.fw / ft ) * (ft - Math:min(c.activity.fw, ft)) / ft
+					Math:sqrt(Math:sqrt(Math:sqrt( c.activity.fw / ft ))) * Math:min(c.activity.fw, ft) / ft
+				]
+				{ parts: f_parts, result: (f_parts[0] + f_parts[1]) * fs }
+			}
+			let ss = eval {
+				let sa = 64	// ログイン頻度が高い場合に付与されるボーナスの最大
+				Math:sqrt( login_freq / 14 ) * sa
+			}
+			let rs = 1	// リムーブペナルティの倍率
+			{ follow: sf, login: ss, result: Math:floor( Math:max(0, sf.result + ss - c.activity.rm * rs) ) }
+		}
+		let u = eval {
+			let as = c.activity.nn + Math:sqrt(c.activity.rn)
+			let ut = 128	// 単方向的アクティビティの基準しきい値(これを超えると増えにくくなる)
+			let us = 128	// 単方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+			{ score: as, result: Math:floor( Math:sqrt(Math:sqrt( as / ut )) * us ) }
+		}
+		let b = eval {
+			let at = 256	// アクティビティの基準しきい値(これを超えると増えにくくなる)
+			let ft = 256	// フォローの基準しきい値(これを超えると増えにくくなる)
+			let as = eval {
+				let rw = 4	// リプライのポイント付けの重み
+				let aw = 1	// リアクションのポイント付けの重み
+				let sb = c.activity.re * rw + c.activity.ra * aw
+				{ base: sb, s1: sb / at, s2: sb / ( at * Math:sqrt( Math:max(1,c.activity.fw) / ft ) ) }
+			}
+			let b_parts = [
+				Math:sqrt( as.s1 ) * ( 1 - Math:min(as.s1, 1) ) * ( 1 - Math:min(c.activity.fw / ft, 1) )
+				Math:sqrt(Math:sqrt(Math:sqrt( as.s1 ))) * Math:min(as.s1, 1) * ( 1 - Math:min(c.activity.fw / ft, 1) )
+				Math:sqrt( as.s2 ) * ( 1 - Math:min(as.s2, 1) ) * Math:min(c.activity.fw / ft, 1)
+				Math:sqrt(Math:sqrt(Math:sqrt( as.s2 ))) * Math:min(as.s2, 1) * Math:min(c.activity.fw / ft, 1)
+			]
+			let ss = 256	// 双方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+			{ score: as, parts: b_parts, result: Math:floor( (b_parts[0] + b_parts[1] + b_parts[2] + b_parts[3]) * ss ) }
+		}
+		{ params: c.activity, base: s, unidirectional: u, bidirectional: b, result: s.result + u.result + b.result }
 	}
-	elif Core:type(result.ok().message) == 'str' { miexp_notify(result.ok().message) }
-	else {}
+	{
+		//	経験値計算用のアクティビティデータをフェッチ
+		collect: @() {
+			if Plugin:config.debugMode { <: '@MiExpCalculator:collect' }
+			if is_collected() { return Result.ok({ code: 'ALREADY_COLLECTED' }) }
+			if Core:type(c.date) != 'num' { c.date = { last: save.get_lastlogin() } }
+			var e = null
+			e = user()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			e = notes()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			e = follow()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			e = reactions()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			c.fetch_done = true
+			if Plugin:config.debugMode { <: Json:stringify(c) }
+			return Result.ok({ code: 'COLLECTION_SUCSEED' })
+		}
+		//	フェッチしたアクティビティデータを取得
+		get_activity: @() { if is_collected() { c.activity } else { null } }
+		//	アクティビティデータから経験値を計算
+		calculate: @(login_freq) {
+			if Plugin:config.debugMode { <: '@MiExpCalculator:calculate' }
+			if Plugin:config.debugMode { <: Json:stringify({ login_freq: login_freq }) }
+			if !is_collected() { return Result.error({ code: 'ACTIVITY_NOT_COLLECTED_YET' }) }
+			let result = calc_exp(login_freq)
+			if Plugin:config.debugMode { <: Json:stringify(result) }
+			Result.ok(result)
+		}
+	}
 }
 
 let miexp_context = {
 	save: miexp_save
 	load: miexp_load
-	get_activity: miexp_get_activity
 	debug: if Plugin:config.debugMode { @(obj) { <: obj } } else { null }
 }
 
@@ -706,10 +697,38 @@ let miexp_context = {
 	if inst.is_err() {
 		<: inst
 		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+		return null
+	}
+	let calc = MiExpCalculator(inst.ok().data())
+	//	経験値計算用のデータを取得
+	@collect_activity() {
+		let retry_count = 0
+		let retry_glacetime = [ 0, 5000, 15000, 60000, 300000, 1800000 ]
+		//	経験値計算用データ取得完了
+		@on_success(obj) {
+			if Plugin:config.debugMode { <: 'Data corrected, run login task' }
+			let result = inst.ok().login(calc)
+			if Plugin:config.debugMode { <: result }
+			elif result.is_err() {
+				<: result
+				Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.err().code}`, 'error')
+			}
+			elif Core:type(result.ok().message) == 'str' { miexp_notify(result.ok().message) }
+			else {}
+		}
+		//	経験値計算用データ取得失敗
+		@on_failure(err) {
+			<: `Error occoured in collecting activity: {Json:stringify(err)}`
+			retry_count = retry_count + 1
+			let wait_time = retry_glacetime[Math:min(retry_count, retry_glacetime.len - 1)]
+			if Plugin:config.debugMode { <: `Data fetch failed, retry in {wait_time}ms` }
+			Async:timeout(wait_time, @() { collect_activity() })
+		}
+		let result = calc.collect()
+		result.invoke(on_success, on_failure)
 	}
 	if inst.ok().is_login_available().result {
-		Mk:save(MIEXP_CONST.activitycache_key, null)
-		miexp_collect_chart(inst.ok())
+		collect_activity()
 	}
 }
 
