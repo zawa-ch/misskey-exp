@@ -45,6 +45,12 @@ let MIEXP_CONST = {
 	formnotempty_dialog: @(){`フォームが空ではありません。この操作を行うには、フォームを空にする必要があります。`}
 }
 
+//	Rustのenum Resultのような結果を格納するためのデータ構築メソッド
+let Result = {
+	ok: @(result) { { result: result, error: null, err: null, ok: @(){ result }, is_ok: @(){ true }, is_err: @(){ false }, invoke: @(on_ok, on_err){ on_ok(result) } } }
+	error: @(err) { { result: null, error: err, err: @(){ err }, ok: null, is_ok: @(){ false }, is_err: @(){ true }, invoke: @(on_ok, on_err){ on_err(err) } } }
+}
+
 @MiExpSaveUtil(save) {
 	@is_type(value, type) { Core:type(value) == type }
 	@try_parse_json(text) {
@@ -153,13 +159,13 @@ let MIEXP_CONST = {
 		get_lastlogin: @() { if is_valid_on(data, LATEST_VERSION) { data.lastlogin } else { null } }
 		//	最終ログイン日時を設定する
 		//	value: num|null	設定する値
-		//	<- 成功した場合空のobj、失敗した場合はその理由を記述した.errorを含むobj
+		//	<- Resultによって構築されるオブジェクト
 		set_lastlogin: @(value) {
-			if !is_valid_on(data, LATEST_VERSION) { return { error: 'SAVEDATA_NOT_MATCH' } }
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
 			if is_type(value, 'num') { data.lastlogin = value + 0 }
 			elif is_type(value, 'null') { data.lastlogin = null }
-			else { return { error: 'VALUE_TYPE_NOT_MATCH' } }
-			{}
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
 		}
 		//	経験値の状態を取得する
 		//	<- obj|null	経験値の状態を表すobj、存在しないか無効な場合null
@@ -168,13 +174,13 @@ let MIEXP_CONST = {
 		get_exp: @() { if is_valid_on(data, LATEST_VERSION) { Obj:copy(data.exp) } else { null } }
 		//	経験値の状態を設定する
 		//	value: obj	設定する値
-		//	<- 成功した場合空のobj、失敗した場合はその理由を記述した.errorを含むobj
+		//	<- Resultによって構築されるオブジェクト
 		set_exp: @(value) {
-			if !is_valid_on(data, LATEST_VERSION) { return { error: 'SAVEDATA_NOT_MATCH' } }
-			if !is_type(value, 'obj') { return { error: 'VALUE_TYPE_NOT_MATCH' } }
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
+			if !is_type(value, 'obj') { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
 			if is_type(value.level, 'num') && is_type(value.gauge, 'num') && is_type(value.points, 'num') { data.exp = Obj:copy(value) }
-			else { return { error: 'VALUE_TYPE_NOT_MATCH' } }
-			{}
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
 		}
 		//	ログイン日数を取得する
 		//	<- num|null	ログイン日数を表すnum、存在しないか無効な場合null
@@ -183,12 +189,12 @@ let MIEXP_CONST = {
 		get_logincount: @() { if is_valid_on(data, LATEST_VERSION) { data.state.login } else { null } }
 		//	ログイン日数を設定する
 		//	value: num	設定する値
-		//	<- 成功した場合空のobj、失敗した場合はその理由を記述した.errorを含むobj
+		//	<- Resultによって構築されるオブジェクト
 		set_logincount: @(value) {
-			if !is_valid_on(data, LATEST_VERSION) { return { error: 'SAVEDATA_NOT_MATCH' } }
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
 			if is_type(value, 'num') { data.state.login = value + 0 }
-			else { return { error: 'VALUE_TYPE_NOT_MATCH' } }
-			{}
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
 		}
 		//	ログイン間隔マップを取得する
 		//	<- arr|null	ログイン間隔マップを表すarr、存在しないか無効な場合null
@@ -197,31 +203,31 @@ let MIEXP_CONST = {
 		get_loginmap: @() { if is_valid_on(data, LATEST_VERSION) { data.loginmap.copy() } else { null } }
 		//	ログイン間隔マップを設定する
 		//	value: arr	設定する値
-		//	<- 成功した場合空のobj、失敗した場合はその理由を記述した.errorを含むobj
+		//	<- Resultによって構築されるオブジェクト
 		set_loginmap: @(value) {
-			if !is_valid_on(data, LATEST_VERSION) { return { error: 'SAVEDATA_NOT_MATCH' } }
-			if !is_type(value, 'arr') { return { error: 'VALUE_TYPE_NOT_MATCH' } }
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
+			if !is_type(value, 'arr') { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
 			if value.map(@(i) { is_type(i, 'num') || is_type(i, 'null') }).reduce(@(a,i,n) {a && i}, true) { data.loginmap = value.copy() }
-			else { return { error: 'VALUE_TYPE_NOT_MATCH' } }
-			{}
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
 		}
 		//	セーブデータのアップグレードを行う
 		upgrade: @() {
 			var v = detect_version(data)
-			if !is_type(v, 'num') { return { error: 'VERSION_CANT_DETECT' } }
-			if !is_valid_on(data, v) { return { error: 'INVALID_SAVEDATA' } }
-			if LATEST_VERSION == v { return { result: 'NO_UPDATE_NEEDED' } }
+			if !is_type(v, 'num') { return Result.error({ code: 'VERSION_CANT_DETECT' }) }
+			if !is_valid_on(data, v) { return Result.error({ code: 'INVALID_SAVEDATA' }) }
+			if LATEST_VERSION == v { return Result.ok({ code: 'NO_UPDATE_NEEDED' }) }
 			var s = Obj:copy(data)
 			loop {
 				s = updator[v](s)
 				let nv = detect_version(s)
-				if nv != (v + 1) { return { error: 'VERSION_ASSERTION_FAILED' } }
-				if !is_valid_on(s, nv) { return { error: 'SCHEMA_ASSERTION_FAILED' } }
+				if nv != (v + 1) { return Result.error({ code: 'VERSION_ASSERTION_FAILED' }) }
+				if !is_valid_on(s, nv) { return Result.error({ code: 'SCHEMA_ASSERTION_FAILED' }) }
 				if LATEST_VERSION == nv { break }
 				v = nv
 			}
 			data = s
-			{ result: 'UPDATED' }
+			Result.ok({ code: 'UPDATED' })
 		}
 		//	セーブデータを初期化する
 		initialize: @() { data = new_data() }
@@ -286,10 +292,10 @@ let MIEXP_CONST = {
 			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
 		].join(Str:lf)}
 	}
-	if !check_type(context, 'obj') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context type is not obj' } } }
-	if !check_type(context.load, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' } } }
-	if !check_type(context.save, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' } } }
-	if !check_type(context.get_activity, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.get_activity type is not fn' } } }
+	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context type is not obj' }) }
+	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' }) }
+	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' }) }
+	if !check_type(context.get_activity, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.get_activity type is not fn' }) }
 	@dbg(msg) { if check_type(context.debug, 'fn') { context.debug(msg) } }
 	//	ログインマップデータの更新
 	@update_loginmap(map, duration) {
@@ -368,7 +374,7 @@ let MIEXP_CONST = {
 	dbg('loaded savedata')
 	dbg(Json:stringify({ savedata: data.data() }))
 
-	{
+	Result.ok({
 		//	ヘルプを表示するための要素を取得
 		help: @() {
 			dbg('@Miexp:help')
@@ -378,16 +384,14 @@ let MIEXP_CONST = {
 		//	共有用テキスト要素を取得
 		share: @() {
 			dbg('@Miexp:share')
-			if !is_validdata(data) {
-				return { error: { code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() } }
-			}
+			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() }) }
 			let message = [
 				LOCALIZATION.level_title()
 				LOCALIZATION.logindays(data.get_logincount())
 				LOCALIZATION.currentlevel(data.get_exp().level)
 				LOCALIZATION.level_progress(data.get_exp().gauge, data.get_exp().points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.get_exp().level))
 			].join(Str:lf)
-			{ message: message }
+			Result.ok({ message: message })
 		}
 		//	その日のログイン処理を行えるかを取得
 		is_login_available: @() {
@@ -400,7 +404,7 @@ let MIEXP_CONST = {
 			let current_time = Date:now()
 			if !is_login_available(data, current_time) {
 				dbg('already logged in')
-				return { result: 'ALREADY_LOGGED_IN', message: null }
+				return Result.ok({ code: 'ALREADY_LOGGED_IN', message: null })
 			}
 			var message = []
 			if is_newdata(data) {
@@ -410,7 +414,7 @@ let MIEXP_CONST = {
 			}
 			dbg(Json:stringify({data: data.data()}))
 			if !is_validdata(data) {
-				return { error: { code: 'INVALID_SAVEDATA', message: 'Invalid savedata loaded.' } }
+				return Result.error({ code: 'INVALID_SAVEDATA', message: 'Invalid savedata loaded.' })
 			}
 			let loginmap = if Core:type(data.get_lastlogin()) == 'num' { update_loginmap(data.get_loginmap(), login_duration(data, current_time)) } else { data.get_loginmap() }
 			dbg(Json:stringify({ loginmap: loginmap }))
@@ -426,15 +430,15 @@ let MIEXP_CONST = {
 			}
 			let activity = context.get_activity()
 			dbg(Json:stringify({ activity: activity }))
-			if !check_type(activity, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes.normal, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.normal', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes.renote, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.renote', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes.reply, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.reply', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.follow, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.follow.following, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow.following', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.follow.remove, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow.remove', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.reaction, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.reaction', message: 'Callback "get_activity" returns invalid object.' } } }
+			if !check_type(activity, 'obj') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.notes, 'obj') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.notes', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.notes.normal, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.notes.normal', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.notes.renote, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.notes.renote', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.notes.reply, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.notes.reply', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.follow, 'obj') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.follow', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.follow.following, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.follow.following', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.follow.remove, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.follow.remove', message: 'Callback "get_activity" returns invalid object.' }) }
+			if !check_type(activity.reaction, 'num') { return Result.error({ code: 'INVALID_ACTIVITY_DATA', path: '.reaction', message: 'Callback "get_activity" returns invalid object.' }) }
 			let earned_exp = calc_exp({login_freq: login_freq, notes: activity.notes, follow: activity.follow, reaction: activity.reaction})
 			dbg(Json:stringify({earned_exp: earned_exp}))
 			message.push(LOCALIZATION.earnedexp_message(earned_exp.result))
@@ -448,10 +452,10 @@ let MIEXP_CONST = {
 				dbg(`level up`)
 				message.push(LOCALIZATION.levelup_message())
 			}
-			data.set_lastlogin(current_time)
-			data.set_exp(new_exp)
-			data.set_logincount(value_or(data.get_logincount(), 0) + 1)
-			data.set_loginmap(loginmap)
+			data.set_lastlogin(current_time).ok()
+			data.set_exp(new_exp).ok()
+			data.set_logincount(value_or(data.get_logincount(), 0) + 1).ok()
+			data.set_loginmap(loginmap).ok()
 			dbg(Json:stringify({ updated_savedata: data.data() }))
 			message.push('')
 			message.push(LOCALIZATION.level_title())
@@ -459,15 +463,15 @@ let MIEXP_CONST = {
 			message.push(LOCALIZATION.currentlevel(data.get_exp().level))
 			message.push(LOCALIZATION.level_progress(data.get_exp().gauge, data.get_exp().points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.get_exp().level)))
 			context.save(data.data())
-			{ result: 'LOGIN_SUCCESS', message: message.join(Str:lf) }
+			Result.ok({ code: 'LOGIN_SUCCESS', message: message.join(Str:lf) })
 		}
 		//	データのエクスポート
 		export_data: @() {
 			dbg('@Miexp:export_data')
 			if !is_validdata(data) {
-				return { error: { code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() } }
+				return Result.error({ code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() })
 			}
-			{ result: data.data(), to_json: @() { Json:stringify(data.data()) } }
+			Result.ok({ data: data.data(), to_json: @() { Json:stringify(data.data()) } })
 		}
 		//	データのインポート
 		import_data: @(new_data) {
@@ -475,36 +479,34 @@ let MIEXP_CONST = {
 			dbg(Json:stringify({new_data: new_data}))
 			let s = MiExpSaveUtil(new_data)
 			if !s.is_valid() {
-				return { error: { code: 'INVALID_SAVEDATA', message: LOCALIZATION.invalidtype_dialog_body(), title: LOCALIZATION.invalidtype_dialog_head() } }
+				return Result.error({ code: 'INVALID_SAVEDATA', message: LOCALIZATION.invalidtype_dialog_body(), title: LOCALIZATION.invalidtype_dialog_head() })
 			}
 			if s.is_upgradable() {
 				let r = s.upgrade()
-				if !check_type(r.error, 'null') { return { error: { code: 'SAVEDATA_UPGRADE_FAILED', inner: r.error, message: LOCALIZATION.upgradefailure_dialog_body(), title: LOCALIZATION.upgradefailure_dialog_head() } } }
+				if r.is_err() { return Result.error({ code: 'SAVEDATA_UPGRADE_FAILED', inner: r.err(), message: LOCALIZATION.upgradefailure_dialog_body(), title: LOCALIZATION.upgradefailure_dialog_head() }) }
 			}
-			{
+			Result.ok({
 				message: LOCALIZATION.overwrite_dialog_body()
 				title: LOCALIZATION.overwrite_dialog_head()
 				confirm: @() {
 					data = s
 					context.save(s.data())
-					{ result: 'SUCCESS' }
 				}
-			}
+			})
 		}
 		//	データの消去
 		reset: @() {
 			dbg('@Miexp:reset')
-			{
+			Result.ok({
 				message: LOCALIZATION.erase_dialog_body()
 				title: LOCALIZATION.erase_dialog_head()
 				confirm: @() {
 					data = MiExpSaveUtil(null)
 					context.save(null)
-					{ result: 'SUCCESS' }
 				}
-			}
+			})
 		}
-	}
+	})
 }
 
 //	nullの場合に代替オブジェクトを適用
@@ -605,11 +607,11 @@ let MIEXP_CONST = {
 		if Plugin:config.debugMode { <: 'Data corrected, run login task' }
 		let result = inst.login()
 		if Plugin:config.debugMode { <: result }
-		elif Core:type(result.error) != 'null' {
+		elif result.is_err() {
 			<: result
-			Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.error.code}`, 'error')
+			Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.err().code}`, 'error')
 		}
-		elif Core:type(result.message) == 'str' { miexp_notify(result.message) }
+		elif Core:type(result.ok().message) == 'str' { miexp_notify(result.ok().message) }
 		else {}
 	} else {
 		if Plugin:config.debugMode { <: `Data fetch failed, retry in {wait_time}ms` }
@@ -628,13 +630,13 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: '@on_load' }
 	let inst = MiExp(miexp_context)
 	if Plugin:config.debugMode { <: inst }
-	if Core:type(inst.error) != 'null' {
+	if inst.is_err() {
 		<: inst
 		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
 	}
-	if inst.is_login_available().result {
+	if inst.ok().is_login_available().result {
 		Mk:save(MIEXP_CONST.activitycache_key, null)
-		miexp_collect_chart(inst)
+		miexp_collect_chart(inst.ok())
 	}
 }
 
@@ -642,18 +644,18 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: '@on_cmd' }
 	let inst = MiExp(miexp_context)
 	if Plugin:config.debugMode { <: inst }
-	if Core:type(inst.error) != 'null' {
-		<: inst
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+	if inst.is_err() {
+		<: inst.err()
+		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {result.err().code}`, 'error')
 	}
 	let command = if note.text.len > 0 { value_or(slice_before_with(note.text ' ') note.text) } else { 'share' }
 	if Plugin:config.debugMode { <: command }
 	match (command) {
 		'help' => eval {
-			update('text', inst.help().message)
+			update('text', inst.ok().help().message)
 		}
 		'share' => eval {
-			let result = inst.share()
+			let result = inst.ok().share()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
 			if Core:type(result.error) != 'null' {
 				Mk:dialog(result.error.title, result.error.message, 'error')
@@ -662,7 +664,7 @@ let miexp_context = {
 			update('text', result.message)
 		}
 		'export' => eval {
-			let result = inst.export_data()
+			let result = inst.ok().export_data()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
 			if Core:type(result.error) != 'null' {
 				Mk:dialog(result.error.title, result.error.message, 'error')
@@ -672,7 +674,7 @@ let miexp_context = {
 		}
 		'import' => eval {
 			let import_data = Json:parse(value_or(slice_after_with(note.text ' ') 'null'))
-			var result = inst.import_data(import_data)
+			var result = inst.ok().import_data(import_data)
 			if Plugin:config.debugMode { <: Json:stringify(result) }
 			if Core:type(result.error) != 'null' {
 				Mk:dialog(result.error.title, result.error.message, 'error')
@@ -690,7 +692,7 @@ let miexp_context = {
 			update('text', '')
 		}
 		'reset' => eval {
-			var result = inst.reset()
+			var result = inst.ok().reset()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
 			if Core:type(result.error) != 'null' {
 				Mk:dialog(result.error.title, result.error.message, 'error')
@@ -719,9 +721,9 @@ let miexp_context = {
 	}
 	let inst = MiExp(miexp_context)
 	if Plugin:config.debugMode { <: inst }
-	if Core:type(inst.error) != 'null' {
-		<: inst
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+	if inst.is_err() {
+		<: inst.err()
+		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.err().code}`, 'error')
 	}
 	update('text', inst.help().message)
 }
