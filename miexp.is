@@ -9,6 +9,9 @@
 		//	ログインやレベルアップを通知するために必要になります。
 		//	(設定で無効化することもできます)
 		'write:notifications'
+		//	read:reactions
+		//	経験値計算に必要なアクティビティデータの収集のために必要になります。
+		'read:reactions'
 	]
 	config: {
 		enableNotification: {
