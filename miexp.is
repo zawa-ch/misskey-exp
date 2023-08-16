@@ -87,9 +87,13 @@ let Result = {
 		//	セーブデータの妥当性を検出するバージョン別関数
 		let validation_detector = [
 			//	version 0 (1.0.0 - 1.0.3)
-			@(save) { is_type(save.loginday, 'num') && is_type(save.loginmap, 'arr') && is_type(save.subscore, 'num') && is_type(save.score, 'num') && is_type(save.level, 'num') && is_type(save.lastupdate, 'num') }
+			@(save) {
+				if Core:not(is_type(save, 'obj')) { return false }
+				is_type(save.loginday, 'num') && is_type(save.loginmap, 'arr') && is_type(save.subscore, 'num') && is_type(save.score, 'num') && is_type(save.level, 'num') && is_type(save.lastupdate, 'num')
+			}
 			//	version 1 (1.1.0 -)
 			@(save) {
+				if Core:not(is_type(save, 'obj')) { return false }
 				if Core:not(is_type(save.schema, 'obj') && is_type(save.exp, 'obj') && is_type(save.state, 'obj') && is_type(save.loginmap, 'arr')) { return false }
 				if Core:not(is_type(save.schema.context, 'str') && is_type(save.schema.version, 'num')) { return false }
 				if Core:not(is_type(save.exp.level, 'num') && is_type(save.exp.gauge, 'num') && is_type(save.exp.points, 'num')) { return false }
