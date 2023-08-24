@@ -3,7 +3,7 @@
 	name: "MiExp"
 	author: "zawa-ch."
 	description: "あなたのMisskeyでの活動から経験値を集計します"
-	version: "1.1.2"
+	version: "1.2.0"
 	permissions: [
 		//	write:notifications
 		//	ログインやレベルアップを通知するために必要になります。
