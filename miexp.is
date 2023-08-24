@@ -304,9 +304,9 @@ let Result = {
 	@value_or(value, alt) { if !check_type(value 'null') { value } else { alt } }
 	//	ゲージ1本分の経験値量
 	let EXP_GAUGE_CAPACITY = 256
-	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context type is not obj' }) }
-	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' }) }
-	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' }) }
+	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context', assert: 'type == obj' }) }
+	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context.load', assert: 'type == fn' }) }
+	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context.save', assert: 'type == fn' }) }
 	@dbg(msg) { if check_type(context.debug, 'fn') { context.debug(msg) } }
 	//	ログインマップデータの更新
 	@update_loginmap(map, duration) {
@@ -366,7 +366,7 @@ let Result = {
 		//	共有用テキスト要素を取得
 		share: @() {
 			dbg('@Miexp:share')
-			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() }) }
+			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST' }) }
 			let message = [
 				LOCALIZATION.level_title()
 				LOCALIZATION.logindays(data.get_logincount())
@@ -397,7 +397,7 @@ let Result = {
 			}
 			dbg(Json:stringify({data: data.data()}))
 			if !is_validdata(data) {
-				return Result.error({ code: 'INVALID_SAVEDATA', message: 'Invalid savedata loaded.' })
+				return Result.error({ code: 'INVALID_SAVEDATA' })
 			}
 			let loginmap = if Core:type(data.get_lastlogin()) == 'num' { update_loginmap(data.get_loginmap(), login_duration(data, current_time)) } else { data.get_loginmap() }
 			dbg(Json:stringify({ loginmap: loginmap }))
@@ -443,7 +443,7 @@ let Result = {
 		export_data: @() {
 			dbg('@Miexp:export_data')
 			if !is_validdata(data) {
-				return Result.error({ code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() })
+				return Result.error({ code: 'SAVEDATA_NOT_EXIST' })
 			}
 			Result.ok({ data: data.data(), to_json: @() { Json:stringify(data.data()) } })
 		}
@@ -453,15 +453,13 @@ let Result = {
 			dbg(Json:stringify({new_data: new_data}))
 			let s = MiExpSaveUtil(new_data)
 			if !s.is_valid() {
-				return Result.error({ code: 'INVALID_SAVEDATA', message: LOCALIZATION.invalidtype_dialog_body(), title: LOCALIZATION.invalidtype_dialog_head() })
+				return Result.error({ code: 'INVALID_SAVEDATA' })
 			}
 			if s.is_upgradable() {
 				let r = s.upgrade()
-				if r.is_err() { return Result.error({ code: 'SAVEDATA_UPGRADE_FAILED', inner: r.err(), message: LOCALIZATION.upgradefailure_dialog_body(), title: LOCALIZATION.upgradefailure_dialog_head() }) }
+				if r.is_err() { return Result.error({ code: 'SAVEDATA_UPGRADE_FAILED', inner: r.err() }) }
 			}
 			Result.ok({
-				message: LOCALIZATION.overwrite_dialog_body()
-				title: LOCALIZATION.overwrite_dialog_head()
 				confirm: @() {
 					data = s
 					context.save(s.data())
@@ -472,8 +470,6 @@ let Result = {
 		reset: @() {
 			dbg('@Miexp:reset')
 			Result.ok({
-				message: LOCALIZATION.erase_dialog_body()
-				title: LOCALIZATION.erase_dialog_head()
 				confirm: @() {
 					data = MiExpSaveUtil(null)
 					context.save(null)
@@ -522,6 +518,12 @@ let Result = {
 
 //	プラグインデータ取得
 @miexp_load() { Mk:load(MIEXP_CONST.savedata_key) }
+
+//	エラーダイアログ
+@miexp_errdlg(err) {
+	let e = MiExpLocalization().errdlg_from_errcode(err)
+	Mk:dialog(e.title, e.body, e.type)
+}
 
 @MiExpCalculator(save) {
 	if Plugin:config.debugMode { <: '@MiExpCalculator()' }
@@ -705,7 +707,7 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: inst }
 	if inst.is_err() {
 		<: inst
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+		miexp_errdlg(inst.err())
 		return null
 	}
 	let calc = MiExpCalculator(inst.ok().data())
@@ -720,7 +722,7 @@ let miexp_context = {
 			if Plugin:config.debugMode { <: result }
 			elif result.is_err() {
 				<: result
-				Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.err().code}`, 'error')
+				miexp_errdlg(inst.err())
 			}
 			elif Core:type(result.ok().message) == 'str' { miexp_notify(result.ok().message) }
 			else {}
@@ -747,7 +749,8 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: inst }
 	if inst.is_err() {
 		<: inst.err()
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {result.err().code}`, 'error')
+		miexp_errdlg(inst.err())
+		return null
 	}
 	let command = if note.text.len > 0 { value_or(slice_before_with(note.text ' ') note.text) } else { 'share' }
 	if Plugin:config.debugMode { <: command }
@@ -758,8 +761,8 @@ let miexp_context = {
 		'share' => eval {
 			let result = inst.ok().share()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if Core:type(result.is_err()) != 'null' {
+				miexp_errdlg(inst.err())
 				return null
 			}
 			update('text', result.message)
@@ -767,8 +770,8 @@ let miexp_context = {
 		'export' => eval {
 			let result = inst.ok().export_data()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if Core:type(result.is_err()) != 'null' {
+				miexp_errdlg(inst.err())
 				return null
 			}
 			update('text', result.to_json())
@@ -777,8 +780,8 @@ let miexp_context = {
 			let import_data = Json:parse(value_or(slice_after_with(note.text ' ') 'null'))
 			var result = inst.ok().import_data(import_data)
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if Core:type(result.is_err()) != 'null' {
+				miexp_errdlg(inst.err())
 				return null
 			}
 			if !Mk:confirm(result.title, result.message, 'warn') {
@@ -786,8 +789,8 @@ let miexp_context = {
 			}
 			result = result.confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if Core:type(result.is_err()) != 'null' {
+				miexp_errdlg(inst.err())
 				return null
 			}
 			update('text', '')
@@ -795,8 +798,8 @@ let miexp_context = {
 		'reset' => eval {
 			var result = inst.ok().reset()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if Core:type(result.is_err()) != 'null' {
+				miexp_errdlg(inst.err())
 				return null
 			}
 			if !Mk:confirm(result.title, result.message, 'warn') {
@@ -804,27 +807,27 @@ let miexp_context = {
 			}
 			result = result.confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if Core:type(result.is_err()) != 'null' {
+				miexp_errdlg(inst.err())
 				return null
 			}
 			update('text', '')
 		}
-		* => MiExpLocalization().dialog_commandnotfound()
+		* => MiExpLocalization().errdlg_commandnotfound()
 	}
 }
 
 @on_help(note, update) {
 	if Plugin:config.debugMode { <: '@on_help' }
 	if (note.text.len > 0) {
-		MiExpLocalization().dialog_formnotempty()
+		MiExpLocalization().errdlg_formnotempty()
 		return null
 	}
 	let inst = MiExp(miexp_context)
 	if Plugin:config.debugMode { <: inst }
 	if inst.is_err() {
 		<: inst.err()
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.err().code}`, 'error')
+		miexp_errdlg(inst.err())
 	}
 	update('text', inst.help().message)
 }
