@@ -362,13 +362,14 @@ let Result = {
 		share: @() {
 			dbg('@Miexp:share')
 			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST' }) }
-			let message = [
-				LOCALIZATION.level_title()
-				LOCALIZATION.logindays(data.get_logincount())
-				LOCALIZATION.currentlevel(data.get_exp().level)
-				LOCALIZATION.level_progress(data.get_exp().gauge, data.get_exp().points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.get_exp().level))
-			].join(Str:lf)
-			Result.ok({ message: message })
+			Result.ok({
+				logincount: data.get_logincount() + 0,
+				level_value: data.get_exp().level + 0,
+				level_gauge: data.get_exp().gauge + 0,
+				level_points: data.get_exp().points + 0,
+				gauge_capacity: EXP_GAUGE_CAPACITY + 0,
+				nextlevel_gauge: calc_nextlevel(data.get_exp().level),
+			})
 		}
 		//	その日のログイン処理を行えるかを取得
 		is_login_available: @() {
