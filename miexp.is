@@ -509,7 +509,11 @@ let Result = {
 }
 
 //	Misskey API 通知送信
-@miexp_notify(body) { if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) } }
+@miexp_notify(body) {
+	if Plugin:config.debugMode { <: body }
+	elif Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) }
+	else {}
+}
 
 //	プラグインデータ保存
 @miexp_save(data) { Mk:save(MIEXP_CONST.savedata_key, data) }
