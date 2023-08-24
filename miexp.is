@@ -41,17 +41,75 @@ let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
 	notification_head: 'MiExp'
 	notification_icon: null
-	//	If you want to translate, edit here
-	cmd_formtitle: @(){`MiExp: コマンドライン実行`}
-	help_formtitle: @(){`MiExp: コマンドラインヘルプ`}
-	cmdnotfound_dialog: @(){`指定されたコマンドは存在しません。help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`}
-	formnotempty_dialog: @(){`フォームが空ではありません。この操作を行うには、フォームを空にする必要があります。`}
 }
 
 //	Rustのenum Resultのような結果を格納するためのデータ構築メソッド
 let Result = {
 	ok: @(result) { { result: result, error: null, err: null, ok: @(){ result }, is_ok: @(){ true }, is_err: @(){ false }, invoke: @(on_ok, on_err){ on_ok(result) } } }
 	error: @(err) { { result: null, error: err, err: @(){ err }, ok: null, is_ok: @(){ false }, is_err: @(){ true }, invoke: @(on_ok, on_err){ on_err(err) } } }
+}
+
+//	If you want to translate, edit here
+///	ローカライズデータ
+@MiExpLocalization() {
+	@errcode_to_dialog(err) {
+		match (err.code) {
+			'INVALID_CONTEXT' => { title: `コンテキストオブジェクトが無効です`, body: `無効なコンテキストオブジェクトでMiExpの構築を試みました。このエラーは通常、バグの発生を表します。{Str:lf}エラーが発生したパス: {err.path}{Str:lf}事前条件: {err.assert}`, type: 'error' }
+			'SAVEDATA_NOT_EXIST' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+			'INVALID_SAVEDATA' => { title: `形式が異なります`, body: `入力されたデータは有効なMiExpデータではありません。`, type: 'error' }
+			'SAVEDATA_UPGRADE_FAILED' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+			* => { title: `エラーが発生しました`, body: Json:stringify(err), type: 'error' }
+		}
+	}
+	{
+		msg_help: @(){[
+			`MiExp ヘルプ`
+			``
+			`**利用可能なコマンド**(すべてのコマンドは大文字小文字を区別します)`
+			`help    このヘルプを表示する`
+			`share   共有テキストを表示する`
+			`export  MiExpデータのエクスポートを行う`
+			`import <jsonobject>`
+			`        MiExpデータのインポートを行う`
+			`reset   MiExpデータを消去する`
+			`なにも入力せずにコマンドラインを実行するとshareが実行されます。`
+			``
+			`**MiExp 経験値**`
+			`MiExp経験値はその日の最初のログイン時に加算されます。`
+			`経験値に影響する要素は以下のとおりです。`
+			`・直近のログイン日数`
+			`・フォローの数`
+			`・直近のフォロー解除`
+			`・前日のノート`
+			`・前日のリアクション`
+			`MiExp経験値にはゲージが存在し、256経験値で1本分のゲージになります。`
+			`ゲージを一定数貯めることでレベルを上げることができます。`
+			`レベルアップに必要なゲージ数は現在のレベルによって変化します。`
+			`tips: 一日に大量のアクティビティを行うよりも、毎日ログインを行って継続的に活動したほうが効率が良くなるよう、経験値アルゴリズムは調整されています。`
+			``
+			`**MiExp利用上の注意**`
+			`MiExpはMisskeyプラグインの特性上、知識があればデータの変更やコードの改変を行うことが簡単にできます。`
+			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
+		].join(Str:lf)}
+		msg_welcome: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
+		msg_earnedexp_head: @(exp){`獲得した経験値: {exp}`}
+		msg_earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
+		msg_earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
+		msg_earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
+		msg_levelup: @(){`レベルアップしました！`}
+		msg_level_head: @(){`**MiExp 現在のレベル**`}
+		msg_level_login: @(days){`ログイン日数: **{days}**日`}
+		msg_level_currentlv: @(lv){`現在のレベル: **{lv}**`}
+		msg_level_progress: @(x, sub, scale, next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
+		formtitle_commandline: @(){`MiExp: コマンドライン実行`}
+		formtitle_commandhelp: @(){`MiExp: コマンドラインヘルプ`}
+		dlg_overwrite: @() { { title: `この操作はデータを上書きします`, body: `この操作によってもとあったデータは失われます。取り消すことはできません。`, type: 'warn' } }
+		dlg_erasedata: @() { { title: `データを削除します`, body: `この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`, type: 'warn' } }
+		errdlg_commandnotfound: @(){ { title: `指定されたコマンドは存在しません`, body: `help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`, type: 'error' } }
+		errdlg_formnotempty: @(){ { title: `フォームが空ではありません`, body: `この操作を行うには、フォームを空にする必要があります。`, type: 'error' } }
+		errdlg_upgrade_failure: @(){ { title: `アップグレードに失敗しました`, body: `入力されたデータを最新のバージョンに変換するときに問題が発生しました。`, type: 'error' } }
+		errdlg_from_errcode: errcode_to_dialog
+	}
 }
 
 @MiExpSaveUtil(save) {
@@ -246,59 +304,6 @@ let Result = {
 	@value_or(value, alt) { if !check_type(value 'null') { value } else { alt } }
 	//	ゲージ1本分の経験値量
 	let EXP_GAUGE_CAPACITY = 256
-	//	ローカライゼーションデータ
-	//	If you want to translate, edit here
-	let LOCALIZATION = {
-		welcome_message: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
-		earnedexp_message: @(exp){`獲得した経験値: {exp}`}
-		earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
-		earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
-		earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
-		levelup_message: @(){`レベルアップしました！`}
-		level_title: @(){`**MiExp 現在のレベル**`}
-		logindays: @(days){`ログイン日数: **{days}**日`}
-		currentlevel: @(lv){`現在のレベル: **{lv}**`}
-		level_progress: @(x, sub, scale, next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
-		datanotexist_head: @(){`データがありません`}
-		datanotexist_body: @(){`MiExpのデータが存在しないため、現在のレベルを確認できません。`}
-		invalidtype_dialog_head: @(){`形式が異なります`}
-		invalidtype_dialog_body: @(){`入力されたデータは有効なMiExpデータではありません。`}
-		upgradefailure_dialog_head: @(){`アップグレードに失敗しました`}
-		upgradefailure_dialog_body: @(){`入力されたデータを最新のバージョンに変換するときに問題が発生しました。`}
-		overwrite_dialog_head: @(){`この操作はデータを上書きします`}
-		overwrite_dialog_body: @(){`この操作によってもとあったデータは失われます。取り消すことはできません。`}
-		erase_dialog_head: @(){`データを削除します`}
-		erase_dialog_body: @(){`この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`}
-		cmdhelp: @(){[
-			`MiExp ヘルプ`
-			``
-			`**利用可能なコマンド**(すべてのコマンドは大文字小文字を区別します)`
-			`help    このヘルプを表示する`
-			`share   共有テキストを表示する`
-			`export  MiExpデータのエクスポートを行う`
-			`import <jsonobject>`
-			`        MiExpデータのインポートを行う`
-			`reset   MiExpデータを消去する`
-			`なにも入力せずにコマンドラインを実行するとshareが実行されます。`
-			``
-			`**MiExp 経験値**`
-			`MiExp経験値はその日の最初のログイン時に加算されます。`
-			`経験値に影響する要素は以下のとおりです。`
-			`・直近のログイン日数`
-			`・フォローの数`
-			`・直近のフォロー解除`
-			`・前日のノート`
-			`・前日のリアクション`
-			`MiExp経験値にはゲージが存在し、{EXP_GAUGE_CAPACITY}経験値で1本分のゲージになります。`
-			`ゲージを一定数貯めることでレベルを上げることができます。`
-			`レベルアップに必要なゲージ数は現在のレベルによって変化します。`
-			`tips: 一日に大量のアクティビティを行うよりも、毎日ログインを行って継続的に活動したほうが効率が良くなるよう、経験値アルゴリズムは調整されています。`
-			``
-			`**MiExp利用上の注意**`
-			`MiExpはMisskeyプラグインの特性上、知識があればデータの変更やコードの改変を行うことが簡単にできます。`
-			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
-		].join(Str:lf)}
-	}
 	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context type is not obj' }) }
 	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' }) }
 	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' }) }
@@ -805,14 +810,14 @@ let miexp_context = {
 			}
 			update('text', '')
 		}
-		* => Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.cmdnotfound_dialog(), 'error')
+		* => MiExpLocalization().dialog_commandnotfound()
 	}
 }
 
 @on_help(note, update) {
 	if Plugin:config.debugMode { <: '@on_help' }
 	if (note.text.len > 0) {
-		Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.formnotempty_dialog() 'error')
+		MiExpLocalization().dialog_formnotempty()
 		return null
 	}
 	let inst = MiExp(miexp_context)
@@ -824,6 +829,6 @@ let miexp_context = {
 	update('text', inst.help().message)
 }
 
-Plugin:register_post_form_action(MIEXP_CONST.cmd_formtitle() on_cmd)
-if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MIEXP_CONST.help_formtitle() on_help) }
+Plugin:register_post_form_action(MiExpLocalization().formtitle_commandline(), on_cmd)
+if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MiExpLocalization().formtitle_commandhelp(), on_help) }
 on_load()
