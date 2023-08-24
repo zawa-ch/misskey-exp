@@ -459,6 +459,7 @@ let Result = {
 				confirm: @() {
 					data = s
 					context.save(s.data())
+					Result.ok({})
 				}
 			})
 		}
