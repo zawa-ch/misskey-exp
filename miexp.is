@@ -470,6 +470,7 @@ let Result = {
 				confirm: @() {
 					data = MiExpSaveUtil(null)
 					context.save(null)
+					Result.ok({})
 				}
 			})
 		}
