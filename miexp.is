@@ -775,7 +775,14 @@ let miexp_context = {
 				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			update('text', result.message)
+			result = result.ok()
+			let message = [
+				MiExpLocalization().msg_level_head(),
+				MiExpLocalization().msg_level_login(result.logincount),
+				MiExpLocalization().msg_level_currentlv(result.level_value),
+				MiExpLocalization().msg_level_progress(result.level_gauge, result.level_points, result.gauge_capacity, result.nextlevel_gauge),
+			].join(Str:lf)
+			update('text', message)
 		}
 		'export' => eval {
 			let result = inst.ok().export_data()
