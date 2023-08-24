@@ -794,7 +794,7 @@ let miexp_context = {
 				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			update('text', result.to_json())
+			update('text', result.ok().to_json())
 		}
 		'import' => eval {
 			let import_data = Json:parse(value_or(slice_after_with(note.text ' ') 'null'))
