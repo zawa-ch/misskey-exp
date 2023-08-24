@@ -36,22 +36,82 @@
 }
 //	1.2.0 update
 //	経験値計算アルゴリズムの調整
+//	ローカライゼーション用にインターフェーステキストを集約
 
 let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
 	notification_head: 'MiExp'
 	notification_icon: null
-	//	If you want to translate, edit here
-	cmd_formtitle: @(){`MiExp: コマンドライン実行`}
-	help_formtitle: @(){`MiExp: コマンドラインヘルプ`}
-	cmdnotfound_dialog: @(){`指定されたコマンドは存在しません。help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`}
-	formnotempty_dialog: @(){`フォームが空ではありません。この操作を行うには、フォームを空にする必要があります。`}
 }
 
 //	Rustのenum Resultのような結果を格納するためのデータ構築メソッド
 let Result = {
 	ok: @(result) { { result: result, error: null, err: null, ok: @(){ result }, is_ok: @(){ true }, is_err: @(){ false }, invoke: @(on_ok, on_err){ on_ok(result) } } }
 	error: @(err) { { result: null, error: err, err: @(){ err }, ok: null, is_ok: @(){ false }, is_err: @(){ true }, invoke: @(on_ok, on_err){ on_err(err) } } }
+}
+
+//	If you want to translate, edit here
+///	ローカライズデータ
+@MiExpLocalization() {
+	{
+		msg_help: @(){[
+			`MiExp ヘルプ`
+			``
+			`**利用可能なコマンド**(すべてのコマンドは大文字小文字を区別します)`
+			`help    このヘルプを表示する`
+			`share   共有テキストを表示する`
+			`export  MiExpデータのエクスポートを行う`
+			`import <jsonobject>`
+			`        MiExpデータのインポートを行う`
+			`reset   MiExpデータを消去する`
+			`なにも入力せずにコマンドラインを実行するとshareが実行されます。`
+			``
+			`**MiExp 経験値**`
+			`MiExp経験値はその日の最初のログイン時に加算されます。`
+			`経験値に影響する要素は以下のとおりです。`
+			`・直近のログイン日数`
+			`・フォローの数`
+			`・直近のフォロー解除`
+			`・前日のノート`
+			`・前日のリアクション`
+			`MiExp経験値にはゲージが存在し、256経験値で1本分のゲージになります。`
+			`ゲージを一定数貯めることでレベルを上げることができます。`
+			`レベルアップに必要なゲージ数は現在のレベルによって変化します。`
+			`tips: 一日に大量のアクティビティを行うよりも、毎日ログインを行って継続的に活動したほうが効率が良くなるよう、経験値アルゴリズムは調整されています。`
+			``
+			`**MiExp利用上の注意**`
+			`MiExpはMisskeyプラグインの特性上、知識があればデータの変更やコードの改変を行うことが簡単にできます。`
+			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
+		].join(Str:lf)}
+		msg_welcome: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
+		msg_earnedexp_head: @(exp){`獲得した経験値: {exp}`}
+		msg_earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
+		msg_earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
+		msg_earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
+		msg_levelup: @(){`レベルアップしました！`}
+		msg_level_head: @(){`**MiExp 現在のレベル**`}
+		msg_level_login: @(days){`ログイン日数: **{days}**日`}
+		msg_level_currentlv: @(lv){`現在のレベル: **{lv}**`}
+		msg_level_progress: @(x, sub, scale, next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
+		formtitle_commandline: @(){`MiExp: コマンドライン実行`}
+		formtitle_commandhelp: @(){`MiExp: コマンドラインヘルプ`}
+		dlg_overwrite: @() { { title: `この操作はデータを上書きします`, body: `この操作によってもとあったデータは失われます。取り消すことはできません。`, type: 'warn' } }
+		dlg_erasedata: @() { { title: `データを削除します`, body: `この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`, type: 'warn' } }
+		errdlg_commandnotfound: @(){ { title: `指定されたコマンドは存在しません`, body: `help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`, type: 'error' } }
+		errdlg_formnotempty: @(){ { title: `フォームが空ではありません`, body: `この操作を行うには、フォームを空にする必要があります。`, type: 'error' } }
+		errdlg_upgrade_failure: @(){ { title: `アップグレードに失敗しました`, body: `入力されたデータを最新のバージョンに変換するときに問題が発生しました。`, type: 'error' } }
+		errdlg_from_errcode: @(err){
+			<: '@MiExpLocalization:errdlg_from_errcode'
+			<: Json:stringify(err)
+			match (err.code) {
+				'INVALID_CONTEXT' => { title: `コンテキストオブジェクトが無効です`, body: `無効なコンテキストオブジェクトでMiExpの構築を試みました。このエラーは通常、バグの発生を表します。{Str:lf}エラーが発生したパス: {err.path}{Str:lf}事前条件: {err.assert}`, type: 'error' }
+				'SAVEDATA_NOT_EXIST' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+				'INVALID_SAVEDATA' => { title: `形式が異なります`, body: `入力されたデータは有効なMiExpデータではありません。`, type: 'error' }
+				'SAVEDATA_UPGRADE_FAILED' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+				* => { title: `エラーが発生しました`, body: Json:stringify(err), type: 'error' }
+			}
+		}
+	}
 }
 
 @MiExpSaveUtil(save) {
@@ -246,62 +306,9 @@ let Result = {
 	@value_or(value, alt) { if !check_type(value 'null') { value } else { alt } }
 	//	ゲージ1本分の経験値量
 	let EXP_GAUGE_CAPACITY = 256
-	//	ローカライゼーションデータ
-	//	If you want to translate, edit here
-	let LOCALIZATION = {
-		welcome_message: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
-		earnedexp_message: @(exp){`獲得した経験値: {exp}`}
-		earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
-		earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
-		earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
-		levelup_message: @(){`レベルアップしました！`}
-		level_title: @(){`**MiExp 現在のレベル**`}
-		logindays: @(days){`ログイン日数: **{days}**日`}
-		currentlevel: @(lv){`現在のレベル: **{lv}**`}
-		level_progress: @(x, sub, scale, next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
-		datanotexist_head: @(){`データがありません`}
-		datanotexist_body: @(){`MiExpのデータが存在しないため、現在のレベルを確認できません。`}
-		invalidtype_dialog_head: @(){`形式が異なります`}
-		invalidtype_dialog_body: @(){`入力されたデータは有効なMiExpデータではありません。`}
-		upgradefailure_dialog_head: @(){`アップグレードに失敗しました`}
-		upgradefailure_dialog_body: @(){`入力されたデータを最新のバージョンに変換するときに問題が発生しました。`}
-		overwrite_dialog_head: @(){`この操作はデータを上書きします`}
-		overwrite_dialog_body: @(){`この操作によってもとあったデータは失われます。取り消すことはできません。`}
-		erase_dialog_head: @(){`データを削除します`}
-		erase_dialog_body: @(){`この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`}
-		cmdhelp: @(){[
-			`MiExp ヘルプ`
-			``
-			`**利用可能なコマンド**(すべてのコマンドは大文字小文字を区別します)`
-			`help    このヘルプを表示する`
-			`share   共有テキストを表示する`
-			`export  MiExpデータのエクスポートを行う`
-			`import <jsonobject>`
-			`        MiExpデータのインポートを行う`
-			`reset   MiExpデータを消去する`
-			`なにも入力せずにコマンドラインを実行するとshareが実行されます。`
-			``
-			`**MiExp 経験値**`
-			`MiExp経験値はその日の最初のログイン時に加算されます。`
-			`経験値に影響する要素は以下のとおりです。`
-			`・直近のログイン日数`
-			`・フォローの数`
-			`・直近のフォロー解除`
-			`・前日のノート`
-			`・前日のリアクション`
-			`MiExp経験値にはゲージが存在し、{EXP_GAUGE_CAPACITY}経験値で1本分のゲージになります。`
-			`ゲージを一定数貯めることでレベルを上げることができます。`
-			`レベルアップに必要なゲージ数は現在のレベルによって変化します。`
-			`tips: 一日に大量のアクティビティを行うよりも、毎日ログインを行って継続的に活動したほうが効率が良くなるよう、経験値アルゴリズムは調整されています。`
-			``
-			`**MiExp利用上の注意**`
-			`MiExpはMisskeyプラグインの特性上、知識があればデータの変更やコードの改変を行うことが簡単にできます。`
-			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
-		].join(Str:lf)}
-	}
-	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context type is not obj' }) }
-	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' }) }
-	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' }) }
+	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context', assert: 'type == obj' }) }
+	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context.load', assert: 'type == fn' }) }
+	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context.save', assert: 'type == fn' }) }
 	@dbg(msg) { if check_type(context.debug, 'fn') { context.debug(msg) } }
 	//	ログインマップデータの更新
 	@update_loginmap(map, duration) {
@@ -352,23 +359,18 @@ let Result = {
 
 	Result.ok({
 		data: @() { data }
-		//	ヘルプを表示するための要素を取得
-		help: @() {
-			dbg('@Miexp:help')
-			let message = LOCALIZATION.cmdhelp()
-			{ message: message }
-		}
-		//	共有用テキスト要素を取得
+		//	共有用データを取得
 		share: @() {
 			dbg('@Miexp:share')
-			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() }) }
-			let message = [
-				LOCALIZATION.level_title()
-				LOCALIZATION.logindays(data.get_logincount())
-				LOCALIZATION.currentlevel(data.get_exp().level)
-				LOCALIZATION.level_progress(data.get_exp().gauge, data.get_exp().points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.get_exp().level))
-			].join(Str:lf)
-			Result.ok({ message: message })
+			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST' }) }
+			Result.ok({
+				logincount: data.get_logincount() + 0,
+				level_value: data.get_exp().level + 0,
+				level_gauge: data.get_exp().gauge + 0,
+				level_points: data.get_exp().points + 0,
+				gauge_capacity: EXP_GAUGE_CAPACITY + 0,
+				nextlevel_gauge: calc_nextlevel(data.get_exp().level),
+			})
 		}
 		//	その日のログイン処理を行えるかを取得
 		is_login_available: @() {
@@ -382,17 +384,16 @@ let Result = {
 			let current_time = Date:now()
 			if !is_login_available(data, current_time) {
 				dbg('already logged in')
-				return Result.ok({ code: 'ALREADY_LOGGED_IN', message: null })
+				return Result.ok({ code: 'ALREADY_LOGGED_IN' })
 			}
-			var message = []
-			if is_newdata(data) {
+			let newdata = is_newdata(data)
+			if newdata {
 				dbg('new data')
-				message.push(LOCALIZATION.welcome_message())
 				data.initialize()
 			}
 			dbg(Json:stringify({data: data.data()}))
 			if !is_validdata(data) {
-				return Result.error({ code: 'INVALID_SAVEDATA', message: 'Invalid savedata loaded.' })
+				return Result.error({ code: 'INVALID_SAVEDATA' })
 			}
 			let loginmap = if Core:type(data.get_lastlogin()) == 'num' { update_loginmap(data.get_loginmap(), login_duration(data, current_time)) } else { data.get_loginmap() }
 			dbg(Json:stringify({ loginmap: loginmap }))
@@ -410,35 +411,35 @@ let Result = {
 			if calc_result.is_err() { return Result.error({ code: 'LOGIN_FAILED', inner: calc_result.error }) }
 			let earned_exp = calc_result.ok()
 			dbg(Json:stringify({earned_exp: earned_exp}))
-			message.push(LOCALIZATION.earnedexp_message(earned_exp.result))
-			message.push(LOCALIZATION.earnedexp_base(earned_exp.base.result))
-			message.push(LOCALIZATION.earnedexp_unidirectional(earned_exp.unidirectional.result))
-			message.push(LOCALIZATION.earnedexp_bidirectional(earned_exp.bidirectional.result))
 			let old_level = value_or(data.get_exp().level, 0)
 			let new_exp = levelup(data.get_exp(), earned_exp.result)
 			dbg(Json:stringify({ old_level: old_level, new_exp: new_exp }))
-			if (!is_newdata(data)) && (old_level < new_exp.level) {
-				dbg(`level up`)
-				message.push(LOCALIZATION.levelup_message())
-			}
+			let lvup = old_level < new_exp.level
+			if (lvup) { dbg(`level up`) }
 			data.set_lastlogin(current_time).ok()
 			data.set_exp(new_exp).ok()
 			data.set_logincount(value_or(data.get_logincount(), 0) + 1).ok()
 			data.set_loginmap(loginmap).ok()
 			dbg(Json:stringify({ updated_savedata: data.data() }))
-			message.push('')
-			message.push(LOCALIZATION.level_title())
-			message.push(LOCALIZATION.logindays(data.get_logincount()))
-			message.push(LOCALIZATION.currentlevel(data.get_exp().level))
-			message.push(LOCALIZATION.level_progress(data.get_exp().gauge, data.get_exp().points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.get_exp().level)))
 			context.save(data.data())
-			Result.ok({ code: 'LOGIN_SUCCESS', message: message.join(Str:lf) })
+			Result.ok({
+				code: 'LOGIN_SUCCESS',
+				is_newdata: newdata,
+				earned_exp: earned_exp,
+				is_levelup: lvup,
+				logincount: data.get_logincount() + 0,
+				level_value: data.get_exp().level + 0,
+				level_gauge: data.get_exp().gauge + 0,
+				level_points: data.get_exp().points + 0,
+				gauge_capacity: EXP_GAUGE_CAPACITY + 0,
+				nextlevel_gauge: calc_nextlevel(data.get_exp().level),
+			})
 		}
 		//	データのエクスポート
 		export_data: @() {
 			dbg('@Miexp:export_data')
 			if !is_validdata(data) {
-				return Result.error({ code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() })
+				return Result.error({ code: 'SAVEDATA_NOT_EXIST' })
 			}
 			Result.ok({ data: data.data(), to_json: @() { Json:stringify(data.data()) } })
 		}
@@ -448,15 +449,13 @@ let Result = {
 			dbg(Json:stringify({new_data: new_data}))
 			let s = MiExpSaveUtil(new_data)
 			if !s.is_valid() {
-				return Result.error({ code: 'INVALID_SAVEDATA', message: LOCALIZATION.invalidtype_dialog_body(), title: LOCALIZATION.invalidtype_dialog_head() })
+				return Result.error({ code: 'INVALID_SAVEDATA' })
 			}
 			if s.is_upgradable() {
 				let r = s.upgrade()
-				if r.is_err() { return Result.error({ code: 'SAVEDATA_UPGRADE_FAILED', inner: r.err(), message: LOCALIZATION.upgradefailure_dialog_body(), title: LOCALIZATION.upgradefailure_dialog_head() }) }
+				if r.is_err() { return Result.error({ code: 'SAVEDATA_UPGRADE_FAILED', inner: r.err() }) }
 			}
 			Result.ok({
-				message: LOCALIZATION.overwrite_dialog_body()
-				title: LOCALIZATION.overwrite_dialog_head()
 				confirm: @() {
 					data = s
 					context.save(s.data())
@@ -467,8 +466,6 @@ let Result = {
 		reset: @() {
 			dbg('@Miexp:reset')
 			Result.ok({
-				message: LOCALIZATION.erase_dialog_body()
-				title: LOCALIZATION.erase_dialog_head()
 				confirm: @() {
 					data = MiExpSaveUtil(null)
 					context.save(null)
@@ -517,6 +514,8 @@ let Result = {
 
 //	プラグインデータ取得
 @miexp_load() { Mk:load(MIEXP_CONST.savedata_key) }
+
+@miexp_dlg(e) { Mk:dialog(e.title, e.body, e.type) }
 
 @MiExpCalculator(save) {
 	if Plugin:config.debugMode { <: '@MiExpCalculator()' }
@@ -700,7 +699,7 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: inst }
 	if inst.is_err() {
 		<: inst
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+		miexp_dlg(MiExpLocalization().errdlg_from_errcode(inst.err()))
 		return null
 	}
 	let calc = MiExpCalculator(inst.ok().data())
@@ -713,11 +712,30 @@ let miexp_context = {
 			if Plugin:config.debugMode { <: 'Data corrected, run login task' }
 			let result = inst.ok().login(calc)
 			if Plugin:config.debugMode { <: result }
-			elif result.is_err() {
+			if result.is_err() {
 				<: result
-				Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.err().code}`, 'error')
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(inst.err()))
 			}
-			elif Core:type(result.ok().message) == 'str' { miexp_notify(result.ok().message) }
+			elif result.ok().code == 'LOGIN_SUCCESS' {
+				let e = result.ok()
+				let message = [].concat(if e.is_newdata {[
+					MiExpLocalization().msg_welcome(),
+				]} else {[]}).concat([
+					MiExpLocalization().msg_earnedexp_head(e.earned_exp.result),
+					MiExpLocalization().msg_earnedexp_base(e.earned_exp.base.result),
+					MiExpLocalization().msg_earnedexp_unidirectional(e.earned_exp.unidirectional.result),
+					MiExpLocalization().msg_earnedexp_bidirectional(e.earned_exp.bidirectional.result),
+				]).concat(if e.is_levelup {[
+					MiExpLocalization().msg_levelup(),
+				]} else {[]}).concat([
+					'',
+					MiExpLocalization().msg_level_head(),
+					MiExpLocalization().msg_level_login(e.logincount),
+					MiExpLocalization().msg_level_currentlv(e.level_value),
+					MiExpLocalization().msg_level_progress(e.level_gauge, e.level_points, e.gauge_capacity, e.nextlevel_gauge),
+				]).join(Str:lf)
+				miexp_notify(message)
+			}
 			else {}
 		}
 		//	経験値計算用データ取得失敗
@@ -742,28 +760,36 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: inst }
 	if inst.is_err() {
 		<: inst.err()
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {result.err().code}`, 'error')
+		miexp_dlg(MiExpLocalization().errdlg_from_errcode(inst.err()))
+		return null
 	}
 	let command = if note.text.len > 0 { value_or(slice_before_with(note.text ' ') note.text) } else { 'share' }
 	if Plugin:config.debugMode { <: command }
 	match (command) {
 		'help' => eval {
-			update('text', inst.ok().help().message)
+			update('text', MiExpLocalization().msg_help())
 		}
 		'share' => eval {
 			let result = inst.ok().share()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			update('text', result.message)
+			result = result.ok()
+			let message = [
+				MiExpLocalization().msg_level_head(),
+				MiExpLocalization().msg_level_login(result.logincount),
+				MiExpLocalization().msg_level_currentlv(result.level_value),
+				MiExpLocalization().msg_level_progress(result.level_gauge, result.level_points, result.gauge_capacity, result.nextlevel_gauge),
+			].join(Str:lf)
+			update('text', message)
 		}
 		'export' => eval {
 			let result = inst.ok().export_data()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
 			update('text', result.to_json())
@@ -772,17 +798,17 @@ let miexp_context = {
 			let import_data = Json:parse(value_or(slice_after_with(note.text ' ') 'null'))
 			var result = inst.ok().import_data(import_data)
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			if !Mk:confirm(result.title, result.message, 'warn') {
+			if !Mk:confirm(MiExpLocalization().dlg_overwrite().title, MiExpLocalization().dlg_overwrite().body, 'warn') {
 				return null
 			}
 			result = result.confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
 			update('text', '')
@@ -790,40 +816,34 @@ let miexp_context = {
 		'reset' => eval {
 			var result = inst.ok().reset()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			if !Mk:confirm(result.title, result.message, 'warn') {
+			if !Mk:confirm(MiExpLocalization().dlg_erasedata().title, MiExpLocalization().dlg_erasedata().body, 'warn') {
 				return null
 			}
 			result = result.confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
 			update('text', '')
 		}
-		* => Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.cmdnotfound_dialog(), 'error')
+		* => miexp_dlg(MiExpLocalization().errdlg_commandnotfound())
 	}
 }
 
 @on_help(note, update) {
 	if Plugin:config.debugMode { <: '@on_help' }
 	if (note.text.len > 0) {
-		Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.formnotempty_dialog() 'error')
+		miexp_dlg(MiExpLocalization().errdlg_formnotempty())
 		return null
 	}
-	let inst = MiExp(miexp_context)
-	if Plugin:config.debugMode { <: inst }
-	if inst.is_err() {
-		<: inst.err()
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.err().code}`, 'error')
-	}
-	update('text', inst.help().message)
+	update('text', MiExpLocalization().msg_help())
 }
 
-Plugin:register_post_form_action(MIEXP_CONST.cmd_formtitle() on_cmd)
-if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MIEXP_CONST.help_formtitle() on_help) }
+Plugin:register_post_form_action(MiExpLocalization().formtitle_commandline(), on_cmd)
+if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MiExpLocalization().formtitle_commandhelp(), on_help) }
 on_load()
