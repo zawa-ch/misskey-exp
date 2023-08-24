@@ -514,11 +514,7 @@ let Result = {
 //	プラグインデータ取得
 @miexp_load() { Mk:load(MIEXP_CONST.savedata_key) }
 
-//	エラーダイアログ
-@miexp_errdlg(err) {
-	let e = MiExpLocalization().errdlg_from_errcode(err)
-	Mk:dialog(e.title, e.body, e.type)
-}
+@miexp_dlg(e) { Mk:dialog(e.title, e.body, e.type) }
 
 @MiExpCalculator(save) {
 	if Plugin:config.debugMode { <: '@MiExpCalculator()' }
