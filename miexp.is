@@ -459,6 +459,7 @@ let Result = {
 				confirm: @() {
 					data = s
 					context.save(s.data())
+					Result.ok({})
 				}
 			})
 		}
@@ -469,6 +470,7 @@ let Result = {
 				confirm: @() {
 					data = MiExpSaveUtil(null)
 					context.save(null)
+					Result.ok({})
 				}
 			})
 		}
@@ -507,7 +509,11 @@ let Result = {
 }
 
 //	Misskey API 通知送信
-@miexp_notify(body) { if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) } }
+@miexp_notify(body) {
+	if Plugin:config.debugMode { <: body }
+	elif Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) }
+	else {}
+}
 
 //	プラグインデータ保存
 @miexp_save(data) { Mk:save(MIEXP_CONST.savedata_key, data) }
@@ -792,7 +798,7 @@ let miexp_context = {
 				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			update('text', result.to_json())
+			update('text', result.ok().to_json())
 		}
 		'import' => eval {
 			let import_data = Json:parse(value_or(slice_after_with(note.text ' ') 'null'))
@@ -805,7 +811,7 @@ let miexp_context = {
 			if !Mk:confirm(MiExpLocalization().dlg_overwrite().title, MiExpLocalization().dlg_overwrite().body, 'warn') {
 				return null
 			}
-			result = result.confirm()
+			result = result.ok().confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
 			if result.is_err() {
 				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
@@ -823,7 +829,7 @@ let miexp_context = {
 			if !Mk:confirm(MiExpLocalization().dlg_erasedata().title, MiExpLocalization().dlg_erasedata().body, 'warn') {
 				return null
 			}
-			result = result.confirm()
+			result = result.ok().confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
 			if result.is_err() {
 				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
