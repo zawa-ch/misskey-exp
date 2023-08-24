@@ -715,7 +715,26 @@ let miexp_context = {
 				<: result
 				miexp_dlg(MiExpLocalization().errdlg_from_errcode(inst.err()))
 			}
-			elif Core:type(result.ok().message) == 'str' { miexp_notify(result.ok().message) }
+			elif result.ok().code == 'LOGIN_SUCCESS' {
+				let e = result.ok()
+				let message = [].concat(if e.is_newdata {[
+					MiExpLocalization().msg_welcome(),
+				]} else {[]}).concat([
+					MiExpLocalization().msg_earnedexp_head(e.earned_exp.result),
+					MiExpLocalization().msg_earnedexp_base(e.earned_exp.base.result),
+					MiExpLocalization().msg_earnedexp_unidirectional(e.earned_exp.unidirectional.result),
+					MiExpLocalization().msg_earnedexp_bidirectional(e.earned_exp.bidirectional.result),
+				]).concat(if e.is_levelup {[
+					MiExpLocalization().msg_levelup(),
+				]} else {[]}).concat([
+					'',
+					MiExpLocalization().msg_level_head(),
+					MiExpLocalization().msg_level_login(e.logincount),
+					MiExpLocalization().msg_level_currentlv(e.level_value),
+					MiExpLocalization().msg_level_progress(e.level_gauge, e.level_points, e.gauge_capacity, e.nextlevel_gauge),
+				]).join(Str:lf)
+				miexp_notify(message)
+			}
 			else {}
 		}
 		//	経験値計算用データ取得失敗
