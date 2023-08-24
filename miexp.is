@@ -818,13 +818,7 @@ let miexp_context = {
 		miexp_dlg(MiExpLocalization().errdlg_formnotempty())
 		return null
 	}
-	let inst = MiExp(miexp_context)
-	if Plugin:config.debugMode { <: inst }
-	if inst.is_err() {
-		<: inst.err()
-		miexp_errdlg(inst.err())
-	}
-	update('text', inst.help().message)
+	update('text', MiExpLocalization().msg_help())
 }
 
 Plugin:register_post_form_action(MiExpLocalization().formtitle_commandline(), on_cmd)
