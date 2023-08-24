@@ -807,7 +807,7 @@ let miexp_context = {
 			if !Mk:confirm(MiExpLocalization().dlg_overwrite().title, MiExpLocalization().dlg_overwrite().body, 'warn') {
 				return null
 			}
-			result = result.confirm()
+			result = result.ok().confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
 			if result.is_err() {
 				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
