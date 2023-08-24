@@ -52,15 +52,6 @@ let Result = {
 //	If you want to translate, edit here
 ///	ローカライズデータ
 @MiExpLocalization() {
-	@errcode_to_dialog(err) {
-		match (err.code) {
-			'INVALID_CONTEXT' => { title: `コンテキストオブジェクトが無効です`, body: `無効なコンテキストオブジェクトでMiExpの構築を試みました。このエラーは通常、バグの発生を表します。{Str:lf}エラーが発生したパス: {err.path}{Str:lf}事前条件: {err.assert}`, type: 'error' }
-			'SAVEDATA_NOT_EXIST' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
-			'INVALID_SAVEDATA' => { title: `形式が異なります`, body: `入力されたデータは有効なMiExpデータではありません。`, type: 'error' }
-			'SAVEDATA_UPGRADE_FAILED' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
-			* => { title: `エラーが発生しました`, body: Json:stringify(err), type: 'error' }
-		}
-	}
 	{
 		msg_help: @(){[
 			`MiExp ヘルプ`
@@ -108,7 +99,17 @@ let Result = {
 		errdlg_commandnotfound: @(){ { title: `指定されたコマンドは存在しません`, body: `help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`, type: 'error' } }
 		errdlg_formnotempty: @(){ { title: `フォームが空ではありません`, body: `この操作を行うには、フォームを空にする必要があります。`, type: 'error' } }
 		errdlg_upgrade_failure: @(){ { title: `アップグレードに失敗しました`, body: `入力されたデータを最新のバージョンに変換するときに問題が発生しました。`, type: 'error' } }
-		errdlg_from_errcode: errcode_to_dialog
+		errdlg_from_errcode: @(err){
+			<: '@MiExpLocalization:errdlg_from_errcode'
+			<: Json:stringify(err)
+			match (err.code) {
+				'INVALID_CONTEXT' => { title: `コンテキストオブジェクトが無効です`, body: `無効なコンテキストオブジェクトでMiExpの構築を試みました。このエラーは通常、バグの発生を表します。{Str:lf}エラーが発生したパス: {err.path}{Str:lf}事前条件: {err.assert}`, type: 'error' }
+				'SAVEDATA_NOT_EXIST' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+				'INVALID_SAVEDATA' => { title: `形式が異なります`, body: `入力されたデータは有効なMiExpデータではありません。`, type: 'error' }
+				'SAVEDATA_UPGRADE_FAILED' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+				* => { title: `エラーが発生しました`, body: Json:stringify(err), type: 'error' }
+			}
+		}
 	}
 }
 
