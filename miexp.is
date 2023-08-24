@@ -358,13 +358,7 @@ let Result = {
 
 	Result.ok({
 		data: @() { data }
-		//	ヘルプを表示するための要素を取得
-		help: @() {
-			dbg('@Miexp:help')
-			let message = LOCALIZATION.cmdhelp()
-			{ message: message }
-		}
-		//	共有用テキスト要素を取得
+		//	共有用データを取得
 		share: @() {
 			dbg('@Miexp:share')
 			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST' }) }
@@ -757,7 +751,7 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: command }
 	match (command) {
 		'help' => eval {
-			update('text', inst.ok().help().message)
+			update('text', MiExpLocalization().msg_help())
 		}
 		'share' => eval {
 			let result = inst.ok().share()
