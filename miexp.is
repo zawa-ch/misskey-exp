@@ -36,6 +36,7 @@
 }
 //	1.2.0 update
 //	経験値計算アルゴリズムの調整
+//	ローカライゼーション用にインターフェーステキストを集約
 
 let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
