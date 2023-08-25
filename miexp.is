@@ -3,12 +3,15 @@
 	name: "MiExp"
 	author: "zawa-ch."
 	description: "あなたのMisskeyでの活動から経験値を集計します"
-	version: "1.1.2"
+	version: "1.2.0"
 	permissions: [
 		//	write:notifications
 		//	ログインやレベルアップを通知するために必要になります。
 		//	(設定で無効化することもできます)
 		'write:notifications'
+		//	read:reactions
+		//	経験値計算に必要なアクティビティデータの収集のために必要になります。
+		'read:reactions'
 	]
 	config: {
 		enableNotification: {
@@ -31,132 +34,27 @@
 		}
 	}
 }
-//	1.1.2 update
-//	レベルアップが通知されない問題の修正
-//	1.1.1 update
-//	セーブデータのアップグレードをMiExp本体に取り込み
-//	通知に関わる問題の修正
-//	1.1.0 update
-//	ひとつのオブジェクトクラスに機能を集約
-//	一部の場面で次レベルまでのゲージ数の表示が間違っているのを修正
-//	チャートの取得に失敗した場合は再取得するように
-//	チャートの取得単位を時間単位に変更(日単位だと取りこぼしが多いため)
+//	1.2.0 update
+//	経験値計算アルゴリズムの調整
+//	ローカライゼーション用にインターフェーステキストを集約
 
 let MIEXP_CONST = {
 	savedata_key: 'miexp/savedata'
-	activitycache_key: 'miexp/activity_cache'
 	notification_head: 'MiExp'
 	notification_icon: null
-	//	If you want to translate, edit here
-	cmd_formtitle: @(){`MiExp: コマンドライン実行`}
-	help_formtitle: @(){`MiExp: コマンドラインヘルプ`}
-	cmdnotfound_dialog: @(){`指定されたコマンドは存在しません。help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`}
-	formnotempty_dialog: @(){`フォームが空ではありません。この操作を行うには、フォームを空にする必要があります。`}
 }
 
-@MiExpSaveUtil(save) {
-	@is_type(value, type) { Core:type(value) == type }
-	//	セーブデータからバージョンを検出する
-	//	save: any	セーブデータ
-	//	<- num|null	検出したバージョン、検出できない場合はnull
-	@detect_version(save) {
-		if Core:type(save) != 'obj' { return null }
-		if Core:type(save.schema) != 'obj' { return 0 }
-		if Core:type(save.schema.version) != 'num' { return null }
-		if save.schema.version < 1 || save.schema.version > 1 { return null }
-		save.schema.version
-	}
-	let LATEST_VERSION = 1
-	//	セーブデータの妥当性を検出するバージョン別関数
-	let validation_detector = [
-		//	version 0 (1.0.0 - 1.0.3)
-		@(save) { is_type(save.loginday, 'num') && is_type(save.loginmap, 'arr') && is_type(save.subscore, 'num') && is_type(save.score, 'num') && is_type(save.level, 'num') && is_type(save.lastupdate, 'num') }
-		//	version 1 (1.1.0 -)
-		@(save) {
-			if Core:not(is_type(save.schema, 'obj') && is_type(save.exp, 'obj') && is_type(save.state, 'obj') && is_type(save.loginmap, 'arr')) { return false }
-			if Core:not(is_type(save.schema.context, 'str') && is_type(save.schema.version, 'num')) { return false }
-			save.schema.context == 'miexp' && save.schema.version == 1
-		}
-	]
-	let LOCALTIME_DIFF = Date:parse( `{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00` )
-	//	セーブデータのアップグレードを行うバージョン別関数
-	let updator = [
-		//	version 0 (-> 1)
-		@(save) { { schema: { context: 'miexp', version: 1 }, lastlogin: ((save.lastupdate * 24 + 5) * 3600000 - LOCALTIME_DIFF), exp: { level: save.level, gauge: save.score, points: save.subscore }, state: { login: save.loginday }, loginmap: save.loginmap } }
-		//	version 1 (latest)
-		@(save) { save }
-	]
-	var data = if Core:type(save) == 'obj' { Obj:copy(save) } else { save }
+//	Rustのenum Resultのような結果を格納するためのデータ構築メソッド
+let Result = {
+	ok: @(result) { { result: result, error: null, err: null, ok: @(){ result }, is_ok: @(){ true }, is_err: @(){ false }, invoke: @(on_ok, on_err){ on_ok(result) } } }
+	error: @(err) { { result: null, error: err, err: @(){ err }, ok: null, is_ok: @(){ false }, is_err: @(){ true }, invoke: @(on_ok, on_err){ on_err(err) } } }
+}
+
+//	If you want to translate, edit here
+///	ローカライズデータ
+@MiExpLocalization() {
 	{
-		//	セーブデータを取得する
-		savedata: @() { data }
-		//	バージョンを取得する
-		version: @() { detect_version(data) }
-		//	セーブデータの妥当性を取得する
-		is_valid: @() {
-			let v = detect_version(data)
-			if !is_type(v, 'num') { return false }
-			validation_detector[v](data)
-		}
-		//	アップグレード可能かを取得する
-		is_upgradable: @() {
-			let v = detect_version(data)
-			is_type(v, 'num') && LATEST_VERSION != v
-		}
-		is_latest: @() {
-			let v = detect_version(data)
-			LATEST_VERSION == v
-		}
-		//	セーブデータのアップグレードを行う
-		upgrade: @() {
-			var v = detect_version(data)
-			if !is_type(v, 'num') { return { error: 'VERSION_CANT_DETECT' } }
-			if !validation_detector[v](data) { return { error: 'INVALID_SAVEDATA' } }
-			if LATEST_VERSION == v { return { result: 'NO_UPDATE_NEEDED' } }
-			var s = Obj:copy(data)
-			loop {
-				s = updator[v](s)
-				let nv = detect_version(s)
-				if nv != (v + 1) { return { error: 'VERSION_ASSERTION_FAILED' } }
-				if !validation_detector[nv](s) { return { error: 'SCHEMA_ASSERTION_FAILED' } }
-				if LATEST_VERSION == nv { break }
-				v = nv
-			}
-			data = s
-			{ result: 'UPDATED' }
-		}
-	}
-}
-
-@MiExp(context) {
-	@check_type(obj, type) { Core:type(obj) == type }
-	@value_or(value, alt) { if !check_type(value 'null') { value } else { alt } }
-	//	ゲージ1本分の経験値量
-	let EXP_GAUGE_CAPACITY = 256
-	//	ローカライゼーションデータ
-	//	If you want to translate, edit here
-	let LOCALIZATION = {
-		welcome_message: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
-		earnedexp_message: @(exp){`獲得した経験値: {exp}`}
-		earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
-		earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
-		earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
-		levelup_message: @(){`レベルアップしました！`}
-		level_title: @(){`**MiExp 現在のレベル**`}
-		logindays: @(days){`ログイン日数: **{days}**日`}
-		currentlevel: @(lv){`現在のレベル: **{lv}**`}
-		level_progress: @(x, sub, scale, next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
-		datanotexist_head: @(){`データがありません`}
-		datanotexist_body: @(){`MiExpのデータが存在しないため、現在のレベルを確認できません。`}
-		invalidtype_dialog_head: @(){`形式が異なります`}
-		invalidtype_dialog_body: @(){`入力されたデータは有効なMiExpデータではありません。`}
-		upgradefailure_dialog_head: @(){`アップグレードに失敗しました`}
-		upgradefailure_dialog_body: @(){`入力されたデータを最新のバージョンに変換するときに問題が発生しました。`}
-		overwrite_dialog_head: @(){`この操作はデータを上書きします`}
-		overwrite_dialog_body: @(){`この操作によってもとあったデータは失われます。取り消すことはできません。`}
-		erase_dialog_head: @(){`データを削除します`}
-		erase_dialog_body: @(){`この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`}
-		cmdhelp: @(){[
+		msg_help: @(){[
 			`MiExp ヘルプ`
 			``
 			`**利用可能なコマンド**(すべてのコマンドは大文字小文字を区別します)`
@@ -176,7 +74,7 @@ let MIEXP_CONST = {
 			`・直近のフォロー解除`
 			`・前日のノート`
 			`・前日のリアクション`
-			`MiExp経験値にはゲージが存在し、{EXP_GAUGE_CAPACITY}経験値で1本分のゲージになります。`
+			`MiExp経験値にはゲージが存在し、256経験値で1本分のゲージになります。`
 			`ゲージを一定数貯めることでレベルを上げることができます。`
 			`レベルアップに必要なゲージ数は現在のレベルによって変化します。`
 			`tips: 一日に大量のアクティビティを行うよりも、毎日ログインを行って継続的に活動したほうが効率が良くなるよう、経験値アルゴリズムは調整されています。`
@@ -185,11 +83,232 @@ let MIEXP_CONST = {
 			`MiExpはMisskeyプラグインの特性上、知識があればデータの変更やコードの改変を行うことが簡単にできます。`
 			`MiExpは人との競争を目的として開発されたものではありません。節度をもって楽しく活用してください。`
 		].join(Str:lf)}
+		msg_welcome: @(){`**MiExp**へようこそ！{Str:lf}{Str:lf}このプラグインは通知を使用します。{Str:lf}設定を変更することで無効化することも可能です。{Str:lf}`}
+		msg_earnedexp_head: @(exp){`獲得した経験値: {exp}`}
+		msg_earnedexp_base: @(exp){`<small>- 基本ポイント: {exp}</small>`}
+		msg_earnedexp_unidirectional: @(exp){`<small>- 単方向的活動ポイント: {exp}</small>`}
+		msg_earnedexp_bidirectional: @(exp){`<small>- 双方向的活動ポイント: {exp}</small>`}
+		msg_levelup: @(){`レベルアップしました！`}
+		msg_level_head: @(){`**MiExp 現在のレベル**`}
+		msg_level_login: @(days){`ログイン日数: **{days}**日`}
+		msg_level_currentlv: @(lv){`現在のレベル: **{lv}**`}
+		msg_level_progress: @(x, sub, scale, next){`現在の経験値: **{Math:floor((x+sub/scale)/next*10000)/100}%** (**[{x}]**<small>**+{sub}** /[{next}]</small>)`}
+		formtitle_commandline: @(){`MiExp: コマンドライン実行`}
+		formtitle_commandhelp: @(){`MiExp: コマンドラインヘルプ`}
+		dlg_overwrite: @() { { title: `この操作はデータを上書きします`, body: `この操作によってもとあったデータは失われます。取り消すことはできません。`, type: 'warn' } }
+		dlg_erasedata: @() { { title: `データを削除します`, body: `この操作によってデータは失われます。取り消すことはできません。後悔しませんね?`, type: 'warn' } }
+		errdlg_commandnotfound: @(){ { title: `指定されたコマンドは存在しません`, body: `help と入力してコマンドライン実行をすることでコマンドラインヘルプを確認できます。`, type: 'error' } }
+		errdlg_formnotempty: @(){ { title: `フォームが空ではありません`, body: `この操作を行うには、フォームを空にする必要があります。`, type: 'error' } }
+		errdlg_upgrade_failure: @(){ { title: `アップグレードに失敗しました`, body: `入力されたデータを最新のバージョンに変換するときに問題が発生しました。`, type: 'error' } }
+		errdlg_from_errcode: @(err){
+			<: '@MiExpLocalization:errdlg_from_errcode'
+			<: Json:stringify(err)
+			match (err.code) {
+				'INVALID_CONTEXT' => { title: `コンテキストオブジェクトが無効です`, body: `無効なコンテキストオブジェクトでMiExpの構築を試みました。このエラーは通常、バグの発生を表します。{Str:lf}エラーが発生したパス: {err.path}{Str:lf}事前条件: {err.assert}`, type: 'error' }
+				'SAVEDATA_NOT_EXIST' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+				'INVALID_SAVEDATA' => { title: `形式が異なります`, body: `入力されたデータは有効なMiExpデータではありません。`, type: 'error' }
+				'SAVEDATA_UPGRADE_FAILED' => { title: `データがありません`, body: `MiExpのデータが存在しないため、現在のレベルを確認できません。`, type: 'error' }
+				* => { title: `エラーが発生しました`, body: Json:stringify(err), type: 'error' }
+			}
+		}
 	}
-	if !check_type(context, 'obj') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context type is not obj' } } }
-	if !check_type(context.load, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.load type is not fn' } } }
-	if !check_type(context.save, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.save type is not fn' } } }
-	if !check_type(context.get_activity, 'fn') { return { error: { code: 'INVALID_CONTEXT', message: 'argument context.get_activity type is not fn' } } }
+}
+
+@MiExpSaveUtil(save) {
+	@is_type(value, type) { Core:type(value) == type }
+	@try_parse_json(text) {
+		var result = null
+		var done = false
+		let a1 = Async:timeout(0, @() {
+			result = Json:parse(text)
+			done = true
+		})
+		let a2 = Async:timeout(100, @() { done = true })
+		loop { if done { break } }
+		a1()
+		a2()
+		result
+	}
+	//	セーブデータからバージョンを検出する
+	//	save: any	セーブデータ
+	//	<- num|null	検出したバージョン、検出できない場合はnull
+	@detect_version(save) {
+		if Core:type(save) != 'obj' { return null }
+		if Core:type(save.schema) != 'obj' { return 0 }
+		if Core:type(save.schema.version) != 'num' { return null }
+		if save.schema.version < 1 || save.schema.version > 1 { return null }
+		save.schema.version
+	}
+	//	特定バージョンのセーブデータの妥当性を識別する
+	//	save: any	セーブデータ
+	//	version: num	識別対象のバージョン
+	//	<- bool	有効なセーブデータについてtrue、それ以外でfalse
+	@is_valid_on(save, version) {
+		//	セーブデータの妥当性を検出するバージョン別関数
+		let validation_detector = [
+			//	version 0 (1.0.0 - 1.0.3)
+			@(save) {
+				if Core:not(is_type(save, 'obj')) { return false }
+				is_type(save.loginday, 'num') && is_type(save.loginmap, 'arr') && is_type(save.subscore, 'num') && is_type(save.score, 'num') && is_type(save.level, 'num') && is_type(save.lastupdate, 'num')
+			}
+			//	version 1 (1.1.0 -)
+			@(save) {
+				if Core:not(is_type(save, 'obj')) { return false }
+				if Core:not(is_type(save.schema, 'obj') && is_type(save.exp, 'obj') && is_type(save.state, 'obj') && is_type(save.loginmap, 'arr')) { return false }
+				if Core:not(is_type(save.schema.context, 'str') && is_type(save.schema.version, 'num')) { return false }
+				if Core:not(is_type(save.exp.level, 'num') && is_type(save.exp.gauge, 'num') && is_type(save.exp.points, 'num')) { return false }
+				if Core:not(is_type(save.state.login, 'num')) { return false }
+				save.schema.context == SAVEDATA_CONTEXT && save.schema.version == 1
+			}
+		]
+		if !is_type(version, 'num') { return false }
+		validation_detector[version](data)
+	}
+	//	最新バージョン
+	let LATEST_VERSION = 1
+	//	セーブデータのコンテキストデータ文字列
+	let SAVEDATA_CONTEXT = 'miexp'
+	//	新規データの作成
+	@new_data() {
+		{
+			schema: { context: SAVEDATA_CONTEXT, version: 1 }
+			lastlogin: null
+			exp: { level: 0, gauge: 0, points: 0 }
+			state: { login: 0 }
+			loginmap: eval {
+				var a = []
+				for 14 { a.push(null) }
+				a
+			}
+		}
+	}
+	let LOCALTIME_DIFF = Date:parse( `{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00` )
+	//	セーブデータのアップグレードを行うバージョン別関数
+	let updator = [
+		//	version 0 (-> 1)
+		@(save) { { schema: { context: SAVEDATA_CONTEXT, version: 1 }, lastlogin: ((save.lastupdate * 24 + 5) * 3600000 - LOCALTIME_DIFF), exp: { level: save.level, gauge: save.score, points: save.subscore }, state: { login: save.loginday }, loginmap: save.loginmap } }
+		//	version 1 (latest)
+		@(save) { save }
+	]
+	var data = if is_type(save, 'obj') { Obj:copy(save) } elif is_type(save, 'str') { try_parse_json(save) } else { null }
+	{
+		//	生のセーブデータを取得する
+		//	<- any	セーブデータの内容(たいていの場合saveに代入した内容)
+		data: @() { data }
+		//	バージョンを取得する
+		//	<- num|null	検出したバージョン、検出できない場合はnull
+		version: @() { detect_version(data) }
+		//	セーブデータの妥当性を取得する
+		//	<- bool	有効なセーブデータについてtrue、それ以外でfalse
+		is_valid: @() { is_valid_on(data, detect_version(data)) }
+		//	アップグレード可能かを取得する
+		//	<- bool	最新ではないバージョンについてtrue、それ以外でfalse
+		//	note:
+		//	is_latest()の単純な論理否定ではないことに注意
+		//	version()がnullを返す状況ではどちらもfalseを返す
+		is_upgradable: @() {
+			let v = detect_version(data)
+			is_type(v, 'num') && LATEST_VERSION != v
+		}
+		//	最新のバージョンかを取得する
+		//	<- bool	最新のバージョンについてtrue、それ以外でfalse
+		//	note:
+		//	is_upgradable()の単純な論理否定ではないことに注意
+		//	version()がnullを返す状況ではどちらもfalseを返す
+		is_latest: @() {
+			let v = detect_version(data)
+			LATEST_VERSION == v
+		}
+		//	最終ログイン日時を取得する
+		//	<- num|null	最終ログイン日時を表すnum、存在しないか無効な場合null
+		//	note:
+		//	有効な最新バージョンのデータでのみ有効であり、そうでないデータに対しては常にnullを返す
+		get_lastlogin: @() { if is_valid_on(data, LATEST_VERSION) { data.lastlogin } else { null } }
+		//	最終ログイン日時を設定する
+		//	value: num|null	設定する値
+		//	<- Resultによって構築されるオブジェクト
+		set_lastlogin: @(value) {
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
+			if is_type(value, 'num') { data.lastlogin = value + 0 }
+			elif is_type(value, 'null') { data.lastlogin = null }
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
+		}
+		//	経験値の状態を取得する
+		//	<- obj|null	経験値の状態を表すobj、存在しないか無効な場合null
+		//	note:
+		//	有効な最新バージョンのデータでのみ有効であり、そうでないデータに対しては常にnullを返す
+		get_exp: @() { if is_valid_on(data, LATEST_VERSION) { Obj:copy(data.exp) } else { null } }
+		//	経験値の状態を設定する
+		//	value: obj	設定する値
+		//	<- Resultによって構築されるオブジェクト
+		set_exp: @(value) {
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
+			if !is_type(value, 'obj') { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			if is_type(value.level, 'num') && is_type(value.gauge, 'num') && is_type(value.points, 'num') { data.exp = Obj:copy(value) }
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
+		}
+		//	ログイン日数を取得する
+		//	<- num|null	ログイン日数を表すnum、存在しないか無効な場合null
+		//	note:
+		//	有効な最新バージョンのデータでのみ有効であり、そうでないデータに対しては常にnullを返す
+		get_logincount: @() { if is_valid_on(data, LATEST_VERSION) { data.state.login } else { null } }
+		//	ログイン日数を設定する
+		//	value: num	設定する値
+		//	<- Resultによって構築されるオブジェクト
+		set_logincount: @(value) {
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
+			if is_type(value, 'num') { data.state.login = value + 0 }
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
+		}
+		//	ログイン間隔マップを取得する
+		//	<- arr|null	ログイン間隔マップを表すarr、存在しないか無効な場合null
+		//	note:
+		//	有効な最新バージョンのデータでのみ有効であり、そうでないデータに対しては常にnullを返す
+		get_loginmap: @() { if is_valid_on(data, LATEST_VERSION) { data.loginmap.copy() } else { null } }
+		//	ログイン間隔マップを設定する
+		//	value: arr	設定する値
+		//	<- Resultによって構築されるオブジェクト
+		set_loginmap: @(value) {
+			if !is_valid_on(data, LATEST_VERSION) { return Result.error({ code: 'SAVEDATA_NOT_MATCH' }) }
+			if !is_type(value, 'arr') { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			if value.map(@(i) { is_type(i, 'num') || is_type(i, 'null') }).reduce(@(a,i,n) {a && i}, true) { data.loginmap = value.copy() }
+			else { return Result.error({ code: 'VALUE_TYPE_NOT_MATCH' }) }
+			Result.ok(null)
+		}
+		//	セーブデータのアップグレードを行う
+		upgrade: @() {
+			var v = detect_version(data)
+			if !is_type(v, 'num') { return Result.error({ code: 'VERSION_CANT_DETECT' }) }
+			if !is_valid_on(data, v) { return Result.error({ code: 'INVALID_SAVEDATA' }) }
+			if LATEST_VERSION == v { return Result.ok({ code: 'NO_UPDATE_NEEDED' }) }
+			var s = Obj:copy(data)
+			loop {
+				s = updator[v](s)
+				let nv = detect_version(s)
+				if nv != (v + 1) { return Result.error({ code: 'VERSION_ASSERTION_FAILED' }) }
+				if !is_valid_on(s, nv) { return Result.error({ code: 'SCHEMA_ASSERTION_FAILED' }) }
+				if LATEST_VERSION == nv { break }
+				v = nv
+			}
+			data = s
+			Result.ok({ code: 'UPDATED' })
+		}
+		//	セーブデータを初期化する
+		initialize: @() { data = new_data() }
+	}
+}
+
+@MiExp(context) {
+	@check_type(obj, type) { Core:type(obj) == type }
+	@value_or(value, alt) { if !check_type(value 'null') { value } else { alt } }
+	//	ゲージ1本分の経験値量
+	let EXP_GAUGE_CAPACITY = 256
+	if !check_type(context, 'obj') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context', assert: 'type == obj' }) }
+	if !check_type(context.load, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context.load', assert: 'type == fn' }) }
+	if !check_type(context.save, 'fn') { return Result.error({ code: 'INVALID_CONTEXT', path: 'context.save', assert: 'type == fn' }) }
 	@dbg(msg) { if check_type(context.debug, 'fn') { context.debug(msg) } }
 	//	ログインマップデータの更新
 	@update_loginmap(map, duration) {
@@ -204,36 +323,6 @@ let MIEXP_CONST = {
 	@convert_date(date) {
 		let LOCALTIME_DIFF = Date:parse( `{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00 UTC`) - Date:parse(`{Date:year(date)}/{Date:month(date)}/{Date:day(date)} 0:00` )
 		Math:floor(((date + LOCALTIME_DIFF) / 3600000 - 5) / 24)
-	}
-	//	経験値計算
-	@calc_exp(activitydata) {
-		let result = eval {
-			let b = Math:floor( Math:sqrt( activitydata.login_freq / 14 ) * 128)
-			let ud = Math:floor( Math:sqrt(Math:sqrt( (activitydata.notes.normal + Math:sqrt(activitydata.notes.renote)) / 128 )) * 128 )
-			let bd = eval {
-				let bd_a = eval {
-					let score = activitydata.notes.reply * 4 + activitydata.reaction
-					let parts = [
-						Math:sqrt( score / 256 ) * (256 - Math:min(score, 256)) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
-						Math:sqrt(Math:sqrt(Math:sqrt( score / 256 ))) * Math:min(score, 256) / 256 * (256 - Math:min(activitydata.follow.following, 256)) / 256
-						Math:sqrt( score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ) * (256 - Math:min(score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256)) / 512 * Math:min(activitydata.follow.following, 256) / 256
-						Math:sqrt(Math:sqrt(Math:sqrt( score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256) / 256 ))) * Math:min(score / Math:sqrt(Math:max(1, activitydata.follow.following) / 256), 256) / 256 * Math:min(activitydata.follow.following, 256) / 256
-					]
-					{ score: score, parts: parts, result: parts[0] + parts[1] + parts[2] + parts[3] }
-				}
-				var bd_f = eval {
-					let parts = [
-						Math:sqrt(Math:sqrt( activitydata.follow.following / 256 )) * (256 - Math:min(activitydata.follow.following, 256)) / 256
-						Math:sqrt(Math:sqrt(Math:sqrt( activitydata.follow.following / 256 ))) * Math:min(activitydata.follow.following, 256) / 256
-					]
-					{ parts: parts, result: Math:max(0, parts[0] + parts[1] - activitydata.follow.remove / 64) }
-				}
-				{ follow: bd_f, activity: bd_a, result: Math:floor( bd_f.result * bd_a.result * 256 ) }
-			}
-			{ params: activitydata, base: b, unidirectinal: ud, bidirectional: bd, result: b + ud + bd.result }
-		}
-		dbg(Json:stringify(result))
-		result
 	}
 	//	次レベルまでに必要なゲージ数の取得
 	@calc_nextlevel(level) { 1 + Math:floor( Math:sqrt(level / 64) * 8 ) }
@@ -253,58 +342,35 @@ let MIEXP_CONST = {
 		r
 	}
 	//	セーブデータが新規データであるかを取得
-	@is_newdata(savedata) { !check_type(savedata, 'obj') }
+	@is_newdata(save) { !save.is_valid() }
 	//	セーブデータが有効であるかを取得
-	@is_validdata(savedata) {
-		let s = MiExpSaveUtil(savedata)
-		s.is_valid() && s.is_latest()
-	}
+	@is_validdata(save) { save.is_valid() && save.is_latest() }
 	//	セーブデータとその日との日数の差を取得
-	@login_duration(savedata, date) { convert_date(date) - convert_date(value_or(savedata.lastlogin, 0)) }
+	@login_duration(save, date) { convert_date(date) - convert_date(value_or(save.get_lastlogin(), 0)) }
 	//	その日のログイン処理を行えるかを取得
-	@is_login_available(savedata, date) {
-		if is_newdata(savedata) { return true }
-		if !check_type(savedata.lastlogin, 'num') { return true }
-		login_duration(savedata, date) > 0
+	@is_login_available(save, date) {
+		if is_newdata(data) { return true }
+		if !check_type(save.get_lastlogin(), 'num') { return true }
+		login_duration(save, date) > 0
 	}
-	//	新規データの構築
-	@create_newdata() {
-		{
-			schema: { context: 'miexp', version: 1 }
-			lastlogin: null
-			exp: { level: 0, gauge: 0, points: 0 }
-			state: { login: 0 }
-			loginmap: eval {
-				var a = []
-				for 14 { a.push(null) }
-				a
-			}
-		}
-	}
-	var data = context.load()
+	var data = MiExpSaveUtil(context.load())
 	dbg('loaded savedata')
-	dbg(Json:stringify({ savedata: data }))
+	dbg(Json:stringify({ savedata: data.data() }))
 
-	{
-		//	ヘルプを表示するための要素を取得
-		help: @() {
-			dbg('@Miexp:help')
-			let message = LOCALIZATION.cmdhelp()
-			{ message: message }
-		}
-		//	共有用テキスト要素を取得
+	Result.ok({
+		data: @() { data }
+		//	共有用データを取得
 		share: @() {
 			dbg('@Miexp:share')
-			if !is_validdata(data) {
-				return { error: { code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() } }
-			}
-			let message = [
-				LOCALIZATION.level_title()
-				LOCALIZATION.logindays(data.state.login)
-				LOCALIZATION.currentlevel(data.exp.level)
-				LOCALIZATION.level_progress(data.exp.gauge, data.exp.points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.exp.level))
-			].join(Str:lf)
-			{ message: message }
+			if !is_validdata(data) { return Result.error({ code: 'SAVEDATA_NOT_EXIST' }) }
+			Result.ok({
+				logincount: data.get_logincount() + 0,
+				level_value: data.get_exp().level + 0,
+				level_gauge: data.get_exp().gauge + 0,
+				level_points: data.get_exp().points + 0,
+				gauge_capacity: EXP_GAUGE_CAPACITY + 0,
+				nextlevel_gauge: calc_nextlevel(data.get_exp().level),
+			})
 		}
 		//	その日のログイン処理を行えるかを取得
 		is_login_available: @() {
@@ -312,24 +378,24 @@ let MIEXP_CONST = {
 			{ result: is_login_available(data, Date:now()) }
 		}
 		//	ログイン処理を実行
-		login: @() {
+		//	calc: obj	経験値計算用オブジェクト
+		login: @(calc) {
 			dbg('@Miexp:login')
 			let current_time = Date:now()
 			if !is_login_available(data, current_time) {
 				dbg('already logged in')
-				return { result: 'ALREADY_LOGGED_IN', message: null }
+				return Result.ok({ code: 'ALREADY_LOGGED_IN' })
 			}
-			var message = []
-			if is_newdata(data) {
+			let newdata = is_newdata(data)
+			if newdata {
 				dbg('new data')
-				message.push(LOCALIZATION.welcome_message())
-				data = create_newdata()
+				data.initialize()
 			}
-			dbg(Json:stringify({data: data}))
+			dbg(Json:stringify({data: data.data()}))
 			if !is_validdata(data) {
-				return { error: { code: 'INVALID_SAVEDATA', message: 'Invalid savedata loaded.' } }
+				return Result.error({ code: 'INVALID_SAVEDATA' })
 			}
-			let loginmap = if Core:type(data.lastlogin) == 'num' { update_loginmap(data.loginmap, login_duration(data, current_time)) } else { data.loginmap }
+			let loginmap = if Core:type(data.get_lastlogin()) == 'num' { update_loginmap(data.get_loginmap(), login_duration(data, current_time)) } else { data.get_loginmap() }
 			dbg(Json:stringify({ loginmap: loginmap }))
 			let login_freq = eval {
 				var r = 0
@@ -341,50 +407,41 @@ let MIEXP_CONST = {
 				}
 				r
 			}
-			let activity = context.get_activity()
-			dbg(Json:stringify({ activity: activity }))
-			if !check_type(activity, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes.normal, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.normal', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes.renote, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.renote', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.notes.reply, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.notes.reply', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.follow, 'obj') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.follow.following, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow.following', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.follow.remove, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.follow.remove', message: 'Callback "get_activity" returns invalid object.' } } }
-			if !check_type(activity.reaction, 'num') { return { error: { code: 'INVALID_ACTIVITY_DATA', path: '.reaction', message: 'Callback "get_activity" returns invalid object.' } } }
-			let earned_exp = calc_exp({login_freq: login_freq, notes: activity.notes, follow: activity.follow, reaction: activity.reaction})
+			let calc_result = calc.calculate(login_freq)
+			if calc_result.is_err() { return Result.error({ code: 'LOGIN_FAILED', inner: calc_result.error }) }
+			let earned_exp = calc_result.ok()
 			dbg(Json:stringify({earned_exp: earned_exp}))
-			message.push(LOCALIZATION.earnedexp_message(earned_exp.result))
-			message.push(LOCALIZATION.earnedexp_base(earned_exp.base))
-			message.push(LOCALIZATION.earnedexp_unidirectional(earned_exp.unidirectinal))
-			message.push(LOCALIZATION.earnedexp_bidirectional(earned_exp.bidirectional.result))
-			let old_level = value_or(data.exp.level, 0)
-			let new_exp = levelup(data.exp, earned_exp.result)
+			let old_level = value_or(data.get_exp().level, 0)
+			let new_exp = levelup(data.get_exp(), earned_exp.result)
 			dbg(Json:stringify({ old_level: old_level, new_exp: new_exp }))
-			if (!is_newdata(data)) && (old_level < new_exp.level) {
-				dbg(`level up`)
-				message.push(LOCALIZATION.levelup_message())
-			}
-			data.lastlogin = current_time
-			data.exp = new_exp
-			data.state.login = value_or(data.state.login, 0) + 1
-			data.loginmap = loginmap
-			dbg(Json:stringify({ updated_savedata: data }))
-			message.push('')
-			message.push(LOCALIZATION.level_title())
-			message.push(LOCALIZATION.logindays(data.state.login))
-			message.push(LOCALIZATION.currentlevel(data.exp.level))
-			message.push(LOCALIZATION.level_progress(data.exp.gauge, data.exp.points, EXP_GAUGE_CAPACITY, calc_nextlevel(data.exp.level)))
-			context.save(data)
-			{ result: 'LOGIN_SUCCESS', message: message.join(Str:lf) }
+			let lvup = old_level < new_exp.level
+			if (lvup) { dbg(`level up`) }
+			data.set_lastlogin(current_time).ok()
+			data.set_exp(new_exp).ok()
+			data.set_logincount(value_or(data.get_logincount(), 0) + 1).ok()
+			data.set_loginmap(loginmap).ok()
+			dbg(Json:stringify({ updated_savedata: data.data() }))
+			context.save(data.data())
+			Result.ok({
+				code: 'LOGIN_SUCCESS',
+				is_newdata: newdata,
+				earned_exp: earned_exp,
+				is_levelup: lvup,
+				logincount: data.get_logincount() + 0,
+				level_value: data.get_exp().level + 0,
+				level_gauge: data.get_exp().gauge + 0,
+				level_points: data.get_exp().points + 0,
+				gauge_capacity: EXP_GAUGE_CAPACITY + 0,
+				nextlevel_gauge: calc_nextlevel(data.get_exp().level),
+			})
 		}
 		//	データのエクスポート
 		export_data: @() {
 			dbg('@Miexp:export_data')
 			if !is_validdata(data) {
-				return { error: { code: 'SAVEDATA_NOT_EXIST', message: LOCALIZATION.datanotexist_body(), title: LOCALIZATION.datanotexist_head() } }
+				return Result.error({ code: 'SAVEDATA_NOT_EXIST' })
 			}
-			{ result: data, to_json: @() { Json:stringify(data) } }
+			Result.ok({ data: data.data(), to_json: @() { Json:stringify(data.data()) } })
 		}
 		//	データのインポート
 		import_data: @(new_data) {
@@ -392,36 +449,32 @@ let MIEXP_CONST = {
 			dbg(Json:stringify({new_data: new_data}))
 			let s = MiExpSaveUtil(new_data)
 			if !s.is_valid() {
-				return { error: { code: 'INVALID_SAVEDATA', message: LOCALIZATION.invalidtype_dialog_body(), title: LOCALIZATION.invalidtype_dialog_head() } }
+				return Result.error({ code: 'INVALID_SAVEDATA' })
 			}
 			if s.is_upgradable() {
 				let r = s.upgrade()
-				if !check_type(r.error, 'null') { return { error: { code: 'SAVEDATA_UPGRADE_FAILED', inner: r.error, message: LOCALIZATION.upgradefailure_dialog_body(), title: LOCALIZATION.upgradefailure_dialog_head() } } }
+				if r.is_err() { return Result.error({ code: 'SAVEDATA_UPGRADE_FAILED', inner: r.err() }) }
 			}
-			{
-				message: LOCALIZATION.overwrite_dialog_body()
-				title: LOCALIZATION.overwrite_dialog_head()
+			Result.ok({
 				confirm: @() {
-					data = s.savedata()
-					context.save(s.savedata())
-					{ result: 'SUCCESS' }
+					data = s
+					context.save(s.data())
+					Result.ok({})
 				}
-			}
+			})
 		}
 		//	データの消去
 		reset: @() {
 			dbg('@Miexp:reset')
-			{
-				message: LOCALIZATION.erase_dialog_body()
-				title: LOCALIZATION.erase_dialog_head()
+			Result.ok({
 				confirm: @() {
-					data = null
+					data = MiExpSaveUtil(null)
 					context.save(null)
-					{ result: 'SUCCESS' }
+					Result.ok({})
 				}
-			}
+			})
 		}
-	}
+	})
 }
 
 //	nullの場合に代替オブジェクトを適用
@@ -456,7 +509,11 @@ let MIEXP_CONST = {
 }
 
 //	Misskey API 通知送信
-@miexp_notify(body) { if Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) } }
+@miexp_notify(body) {
+	if Plugin:config.debugMode { <: body }
+	elif Plugin:config.enableNotification { Mk:api('notifications/create' { body: body, header: MIEXP_CONST.notification_head, icon: MIEXP_CONST.notification_icon }) }
+	else {}
+}
 
 //	プラグインデータ保存
 @miexp_save(data) { Mk:save(MIEXP_CONST.savedata_key, data) }
@@ -464,80 +521,181 @@ let MIEXP_CONST = {
 //	プラグインデータ取得
 @miexp_load() { Mk:load(MIEXP_CONST.savedata_key) }
 
-//	経験値集計用データをMiExp本体に通知
-@miexp_get_activity() {
-	let activity = Mk:load(MIEXP_CONST.activitycache_key).activity
-	Mk:save(MIEXP_CONST.activitycache_key, null)
-	activity
-}
+@miexp_dlg(e) { Mk:dialog(e.title, e.body, e.type) }
 
-//	チャートから経験値計算用のデータを取得
-@miexp_collect_chart(inst) {
-	if Plugin:config.debugMode { <: '@miexp_collect_chart' }
-	var c = Mk:load(MIEXP_CONST.activitycache_key)
-	if Core:type(c) != 'obj' { c = { activity: {}, wait_time: 5000 } }
-	let chart_notes = Mk:api('charts/user/notes' { span: 'hour', limit: 24, userId: USER_ID })
-	let chart_following = Mk:api('charts/user/following' { span: 'day', limit: 14, userId: USER_ID })
-	let chart_reactions = Mk:api('charts/user/reactions' { span: 'hour', limit: 24, userId: USER_ID })
-	if Plugin:config.debugMode { <: { chart_notes: chart_notes, chart_following: chart_following, chart_reactions: chart_reactions } }
-	if Core:type(c.activity.notes) != 'obj' {
-		c.activity.notes = eval {
-			if Core:type(chart_notes.diffs) != 'obj' { return null }
-			if Core:type(chart_notes.diffs.normal) != 'arr' { return null }
-			if Core:type(chart_notes.diffs.renote) != 'arr' { return null }
-			if Core:type(chart_notes.diffs.reply) != 'arr' { return null }
-			{
-				normal: Math:max(0, sum(chart_notes.diffs.normal))
-				renote: Math:max(0, sum(chart_notes.diffs.renote))
-				reply: Math:max(0, sum(chart_notes.diffs.reply))
+@MiExpCalculator(save) {
+	if Plugin:config.debugMode { <: '@MiExpCalculator()' }
+	if Plugin:config.debugMode { <: Json:stringify({ save: save }) }
+	var c = { date: null, user_cache: { done: false }, follow_cache: { done: false }, note_cache: { done: false }, reaction_cache: { done: false }, fetch_done: false, activity: {} }
+	@is_collected() { c.fetch_done }
+	@dispatch_api(endpoint, args) {
+		var api_returned = false
+		var api_result = null
+		let api_timeout = 5000
+		let a2 = Async:timeout(api_timeout, @() {
+			api_result = Result.error({ endpoint: endpoint, args: args, code: 'API_TIMEOUT' })
+			api_returned = true
+		})
+		let a1 = Async:timeout(0, @() {
+			api_result = Result.ok({ endpoint: endpoint, args: args, returns: Mk:api(endpoint, args) })
+			api_returned = true
+		})
+		loop { if api_returned { break } }
+		a1()
+		a2()
+		if Plugin:config.debugMode { <: Json:stringify(api_result) }
+		return api_result
+	}
+	@user() {
+		if c.user_cache.done { return Result.ok(null) }
+		let api_result = dispatch_api('users/show', { userId: USER_ID })
+		if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+		c.activity.fw = api_result.ok().returns.followingCount
+		c.user_cache.done = true
+		return Result.ok(null)
+	}
+	@notes() {
+		if c.note_cache.done { return Result.ok(null) }
+		let LOCALTIME_DIFF = Date:parse( `{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00` )
+		let sdate = if Core:type(c.date.last) == 'num' { c.date.last } else { Date:now() - LOCALTIME_DIFF - (Date:now() % 86400000) - 68400000 }
+		if Core:type(c.note_cache.notes) != 'arr' { c.note_cache.notes = [] }
+		loop {
+			let api_args = if Core:type(c.note_cache.sid) == 'str' { { userId: USER_ID, includeReplies: true, sinceId: c.note_cache.sid } } else { { userId: USER_ID, includeReplies: true, sinceDate: sdate } }
+			let api_result = dispatch_api('users/notes', api_args)
+			if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+			if Core:type(api_result.ok().returns) == 'null' { break }
+			let unwrapped_result = api_result.ok().returns
+			if Core:type(unwrapped_result) != 'arr' { return Result.error({ code: 'API_RESULT_CONDITION_ERROR', returns: unwrapped_result }) }
+			if unwrapped_result.len == 0 { break }
+			c.note_cache.notes = c.note_cache.notes.concat(unwrapped_result)
+			c.note_cache.sid = unwrapped_result[unwrapped_result.len - 1].id
+		}
+		var r = c.note_cache.notes.map(@(item){
+			if item.visibility == 'specified' { { nn: 0, rn: 0, re: 0 } }
+			elif Core:type(item.reply) == 'obj' { if item.reply.userId != USER_ID { { nn: 0, rn: 0, re: 1 } } else { { nn: 1, rn: 0, re: 0 } } }
+			elif Core:type(item.renote) == 'obj' { { nn: 0, rn: 1, re: 0 } }
+			else { { nn: 1, rn: 0, re: 0 } }
+		})
+		r = r.reduce(@(o, i, n){ { nn: o.nn + i.nn, rn: o.rn + i.rn, re: o.re + i.re } }, { nn: 0, rn: 0, re: 0 })
+		c.activity.nn = r.nn
+		c.activity.rn = r.rn
+		c.activity.re = r.re
+		c.note_cache.done = true
+		c.note_cache.notes = null
+		return Result.ok(null)
+	}
+	@follow() {
+		if c.follow_cache.done { return Result.ok(null) }
+		let api_result = dispatch_api('charts/user/following', { span: 'day', limit: 14, userId: USER_ID })
+		if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+		c.activity.rm = api_result.ok().returns.local.followings.dec.reduce(@(o, i, n){ o + i }, 0)
+		c.follow_cache.done = true
+		return Result.ok(null)
+	}
+	@reactions() {
+		if c.reaction_cache.done { return Result.ok(null) }
+		let LOCALTIME_DIFF = Date:parse( `{Date:year()}/{Date:month()}/{Date:day()} 0:00 UTC`) - Date:parse(`{Date:year()}/{Date:month()}/{Date:day()} 0:00` )
+		let sdate = if Core:type(c.date.last) == 'num' { c.date.last } else { Date:now() - LOCALTIME_DIFF - (Date:now() % 86400000) - 68400000 }
+		if Core:type(c.reaction_cache.reactions) != 'arr' { c.reaction_cache.reactions = [] }
+		loop {
+			let api_args = if Core:type(c.reaction_cache.sid) == 'str' { { userId: USER_ID, sinceId: c.reaction_cache.sid } } else { { userId: USER_ID, sinceDate: sdate } }
+			let api_result = dispatch_api('users/reactions', api_args)
+			if api_result.is_err() { return Result.error({ code: 'API_RETURNED_FAILURE', inner: api_result.err() }) }
+			if Core:type(api_result.ok().returns) == 'null' { break }
+			let unwrapped_result = api_result.ok().returns
+			if Core:type(unwrapped_result) != 'arr' { return Result.error({ code: 'API_RESULT_CONDITION_ERROR', returns: unwrapped_result }) }
+			if unwrapped_result.len == 0 { break }
+			c.reaction_cache.reactions = c.reaction_cache.reactions.concat(unwrapped_result)
+			c.reaction_cache.sid = unwrapped_result[unwrapped_result.len - 1].id
+		}
+		let r = c.reaction_cache.reactions.filter(@(item){
+			item.note.userId != USER_ID
+		})
+		c.activity.ra = r.len
+		c.reaction_cache.done = true
+		c.reaction_cache.reactions = null
+		return Result.ok(null)
+	}
+	@calc_exp(login_freq) {
+		let s = eval {
+			let sf = eval {
+				let ft = 128	// フォローアクティビティの基準しきい値(これを超えると一気に増えにくくなる)
+				let fs = 64	// フォローアクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+				let f_parts = [
+					Math:sqrt( c.activity.fw / ft ) * (ft - Math:min(c.activity.fw, ft)) / ft
+					Math:sqrt(Math:sqrt(Math:sqrt( c.activity.fw / ft ))) * Math:min(c.activity.fw, ft) / ft
+				]
+				{ parts: f_parts, result: (f_parts[0] + f_parts[1]) * fs }
 			}
-		}
-	}
-	if Core:type(c.activity.follow) != 'obj' {
-		c.activity.follow = eval {
-			if Core:type(chart_following.local) != 'obj' { return null }
-			if Core:type(chart_following.local.followings) != 'obj' { return null }
-			if Core:type(chart_following.local.followings.total[0]) != 'num' { return null }
-			if Core:type(chart_following.local.followings.dec) != 'arr' { return null }
-			{
-				following: chart_following.local.followings.total[0]
-				remove: sum(chart_following.local.followings.dec)
+			let ss = eval {
+				let sa = 64	// ログイン頻度が高い場合に付与されるボーナスの最大
+				Math:sqrt( login_freq / 14 ) * sa
 			}
+			let rs = 1	// リムーブペナルティの倍率
+			{ follow: sf, login: ss, result: Math:floor( Math:max(0, sf.result + ss - c.activity.rm * rs) ) }
 		}
+		let u = eval {
+			let as = c.activity.nn + Math:sqrt(c.activity.rn)
+			let ut = 128	// 単方向的アクティビティの基準しきい値(これを超えると増えにくくなる)
+			let us = 128	// 単方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+			{ score: as, result: Math:floor( Math:sqrt(Math:sqrt( as / ut )) * us ) }
+		}
+		let b = eval {
+			let at = 256	// アクティビティの基準しきい値(これを超えると増えにくくなる)
+			let ft = 256	// フォローの基準しきい値(これを超えると増えにくくなる)
+			let as = eval {
+				let rw = 4	// リプライのポイント付けの重み
+				let aw = 1	// リアクションのポイント付けの重み
+				let sb = c.activity.re * rw + c.activity.ra * aw
+				{ base: sb, s1: sb / at, s2: sb / ( at * Math:sqrt( Math:max(1,c.activity.fw) / ft ) ) }
+			}
+			let b_parts = [
+				Math:sqrt( as.s1 ) * ( 1 - Math:min(as.s1, 1) ) * ( 1 - Math:min(c.activity.fw / ft, 1) )
+				Math:sqrt(Math:sqrt(Math:sqrt( as.s1 ))) * Math:min(as.s1, 1) * ( 1 - Math:min(c.activity.fw / ft, 1) )
+				Math:sqrt( as.s2 ) * ( 1 - Math:min(as.s2, 1) ) * Math:min(c.activity.fw / ft, 1)
+				Math:sqrt(Math:sqrt(Math:sqrt( as.s2 ))) * Math:min(as.s2, 1) * Math:min(c.activity.fw / ft, 1)
+			]
+			let ss = 256	// 双方向的アクティビティポイントの倍率(しきい値に一致する点での付与ポイント)
+			{ score: as, parts: b_parts, result: Math:floor( (b_parts[0] + b_parts[1] + b_parts[2] + b_parts[3]) * ss ) }
+		}
+		{ params: c.activity, base: s, unidirectional: u, bidirectional: b, result: s.result + u.result + b.result }
 	}
-	if Core:type(c.activity.reaction) != 'num' {
-		c.activity.reaction = eval {
-			if Core:type(chart_reactions.local) != 'obj' { return null }
-			if Core:type(chart_reactions.local.count) != 'arr' { return null }
-			if Core:type(chart_reactions.remote) != 'obj' { return null }
-			if Core:type(chart_reactions.remote.count) != 'arr' { return null }
-			sum(merge(chart_reactions.local.count, chart_reactions.remote.count))
+	{
+		//	経験値計算用のアクティビティデータをフェッチ
+		collect: @() {
+			if Plugin:config.debugMode { <: '@MiExpCalculator:collect' }
+			if is_collected() { return Result.ok({ code: 'ALREADY_COLLECTED' }) }
+			if Core:type(c.date) != 'num' { c.date = { last: save.get_lastlogin() } }
+			var e = null
+			e = user()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			e = notes()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			e = follow()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			e = reactions()
+			if e.is_err() { return Result.error({ code: 'COLLECTION_FAILURE', inner: e.err() }) } else { e.ok() }
+			c.fetch_done = true
+			if Plugin:config.debugMode { <: Json:stringify(c) }
+			return Result.ok({ code: 'COLLECTION_SUCSEED' })
 		}
-	}
-	if Plugin:config.debugMode { <: c }
-	let wait_time = c.wait_time
-	c.wait_time = Math:min(c.wait_time * 6, 300000)
-	Mk:save(MIEXP_CONST.activitycache_key, c)
-	if Core:type(c.activity.notes) == 'obj' && Core:type(c.activity.follow) == 'obj' && Core:type(c.activity.reaction) == 'num' {
-		if Plugin:config.debugMode { <: 'Data corrected, run login task' }
-		let result = inst.login()
-		if Plugin:config.debugMode { <: result }
-		elif Core:type(result.error) != 'null' {
-			<: result
-			Mk:dialog(MIEXP_CONST.notification_head, `MiExp login returned error {result.error.code}`, 'error')
+		//	フェッチしたアクティビティデータを取得
+		get_activity: @() { if is_collected() { c.activity } else { null } }
+		//	アクティビティデータから経験値を計算
+		calculate: @(login_freq) {
+			if Plugin:config.debugMode { <: '@MiExpCalculator:calculate' }
+			if Plugin:config.debugMode { <: Json:stringify({ login_freq: login_freq }) }
+			if !is_collected() { return Result.error({ code: 'ACTIVITY_NOT_COLLECTED_YET' }) }
+			let result = calc_exp(login_freq)
+			if Plugin:config.debugMode { <: Json:stringify(result) }
+			Result.ok(result)
 		}
-		elif Core:type(result.message) == 'str' { miexp_notify(result.message) }
-		else {}
-	} else {
-		if Plugin:config.debugMode { <: `Data fetch failed, retry in {wait_time}ms` }
-		Async:timeout(wait_time, @() { miexp_collect_chart(inst) })
 	}
 }
 
 let miexp_context = {
 	save: miexp_save
 	load: miexp_load
-	get_activity: miexp_get_activity
 	debug: if Plugin:config.debugMode { @(obj) { <: obj } } else { null }
 }
 
@@ -545,13 +703,60 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: '@on_load' }
 	let inst = MiExp(miexp_context)
 	if Plugin:config.debugMode { <: inst }
-	if Core:type(inst.error) != 'null' {
+	if inst.is_err() {
 		<: inst
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+		miexp_dlg(MiExpLocalization().errdlg_from_errcode(inst.err()))
+		return null
 	}
-	if inst.is_login_available().result {
-		Mk:save(MIEXP_CONST.activitycache_key, null)
-		miexp_collect_chart(inst)
+	let calc = MiExpCalculator(inst.ok().data())
+	//	経験値計算用のデータを取得
+	@collect_activity() {
+		let retry_count = 0
+		let retry_glacetime = [ 0, 5000, 15000, 60000, 300000, 1800000 ]
+		//	経験値計算用データ取得完了
+		@on_success(obj) {
+			if Plugin:config.debugMode { <: 'Data corrected, run login task' }
+			let result = inst.ok().login(calc)
+			if Plugin:config.debugMode { <: result }
+			if result.is_err() {
+				<: result
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(inst.err()))
+			}
+			elif result.ok().code == 'LOGIN_SUCCESS' {
+				let e = result.ok()
+				let message = [].concat(if e.is_newdata {[
+					MiExpLocalization().msg_welcome(),
+				]} else {[]}).concat([
+					MiExpLocalization().msg_earnedexp_head(e.earned_exp.result),
+					MiExpLocalization().msg_earnedexp_base(e.earned_exp.base.result),
+					MiExpLocalization().msg_earnedexp_unidirectional(e.earned_exp.unidirectional.result),
+					MiExpLocalization().msg_earnedexp_bidirectional(e.earned_exp.bidirectional.result),
+				]).concat(if e.is_levelup {[
+					MiExpLocalization().msg_levelup(),
+				]} else {[]}).concat([
+					'',
+					MiExpLocalization().msg_level_head(),
+					MiExpLocalization().msg_level_login(e.logincount),
+					MiExpLocalization().msg_level_currentlv(e.level_value),
+					MiExpLocalization().msg_level_progress(e.level_gauge, e.level_points, e.gauge_capacity, e.nextlevel_gauge),
+				]).join(Str:lf)
+				miexp_notify(message)
+			}
+			else {}
+		}
+		//	経験値計算用データ取得失敗
+		@on_failure(err) {
+			<: `Error occoured in collecting activity: {Json:stringify(err)}`
+			retry_count = retry_count + 1
+			let wait_time = retry_glacetime[Math:min(retry_count, retry_glacetime.len - 1)]
+			if Plugin:config.debugMode { <: `Data fetch failed, retry in {wait_time}ms` }
+			Async:timeout(wait_time, @() { collect_activity() })
+		}
+		let result = calc.collect()
+		result.invoke(on_success, on_failure)
+	}
+	if inst.ok().is_login_available().result {
+		collect_activity()
 	}
 }
 
@@ -559,90 +764,92 @@ let miexp_context = {
 	if Plugin:config.debugMode { <: '@on_cmd' }
 	let inst = MiExp(miexp_context)
 	if Plugin:config.debugMode { <: inst }
-	if Core:type(inst.error) != 'null' {
-		<: inst
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
+	if inst.is_err() {
+		<: inst.err()
+		miexp_dlg(MiExpLocalization().errdlg_from_errcode(inst.err()))
+		return null
 	}
 	let command = if note.text.len > 0 { value_or(slice_before_with(note.text ' ') note.text) } else { 'share' }
 	if Plugin:config.debugMode { <: command }
 	match (command) {
 		'help' => eval {
-			update('text', inst.help().message)
+			update('text', MiExpLocalization().msg_help())
 		}
 		'share' => eval {
-			let result = inst.share()
+			let result = inst.ok().share()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			update('text', result.message)
+			result = result.ok()
+			let message = [
+				MiExpLocalization().msg_level_head(),
+				MiExpLocalization().msg_level_login(result.logincount),
+				MiExpLocalization().msg_level_currentlv(result.level_value),
+				MiExpLocalization().msg_level_progress(result.level_gauge, result.level_points, result.gauge_capacity, result.nextlevel_gauge),
+			].join(Str:lf)
+			update('text', message)
 		}
 		'export' => eval {
-			let result = inst.export_data()
+			let result = inst.ok().export_data()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			update('text', result.to_json())
+			update('text', result.ok().to_json())
 		}
 		'import' => eval {
 			let import_data = Json:parse(value_or(slice_after_with(note.text ' ') 'null'))
-			var result = inst.import_data(import_data)
+			var result = inst.ok().import_data(import_data)
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			if !Mk:confirm(result.title, result.message, 'warn') {
+			if !Mk:confirm(MiExpLocalization().dlg_overwrite().title, MiExpLocalization().dlg_overwrite().body, 'warn') {
 				return null
 			}
-			result = result.confirm()
+			result = result.ok().confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
 			update('text', '')
 		}
 		'reset' => eval {
-			var result = inst.reset()
+			var result = inst.ok().reset()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
-			if !Mk:confirm(result.title, result.message, 'warn') {
+			if !Mk:confirm(MiExpLocalization().dlg_erasedata().title, MiExpLocalization().dlg_erasedata().body, 'warn') {
 				return null
 			}
-			result = result.confirm()
+			result = result.ok().confirm()
 			if Plugin:config.debugMode { <: Json:stringify(result) }
-			if Core:type(result.error) != 'null' {
-				Mk:dialog(result.error.title, result.error.message, 'error')
+			if result.is_err() {
+				miexp_dlg(MiExpLocalization().errdlg_from_errcode(result.err()))
 				return null
 			}
 			update('text', '')
 		}
-		* => Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.cmdnotfound_dialog(), 'error')
+		* => miexp_dlg(MiExpLocalization().errdlg_commandnotfound())
 	}
 }
 
 @on_help(note, update) {
 	if Plugin:config.debugMode { <: '@on_help' }
 	if (note.text.len > 0) {
-		Mk:dialog(MIEXP_CONST.notification_head, MIEXP_CONST.formnotempty_dialog() 'error')
+		miexp_dlg(MiExpLocalization().errdlg_formnotempty())
 		return null
 	}
-	let inst = MiExp(miexp_context)
-	if Plugin:config.debugMode { <: inst }
-	if Core:type(inst.error) != 'null' {
-		<: inst
-		Mk:dialog(MIEXP_CONST.notification_head, `MiExp constructor returned error {inst.error.code}`, 'error')
-	}
-	update('text', inst.help().message)
+	update('text', MiExpLocalization().msg_help())
 }
 
-Plugin:register_post_form_action(MIEXP_CONST.cmd_formtitle() on_cmd)
-if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MIEXP_CONST.help_formtitle() on_help) }
+Plugin:register_post_form_action(MiExpLocalization().formtitle_commandline(), on_cmd)
+if Plugin:config.commandlineHelp { Plugin:register_post_form_action(MiExpLocalization().formtitle_commandhelp(), on_help) }
 on_load()
